@@ -4,7 +4,7 @@
 
 **微软 Rewards 助手 - 自动完成搜索、活动、签到、阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
 
-[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/QingJ/get-microsoft-rewards)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-v4.0+-orange.svg)](https://www.tampermonkey.net/)
 
@@ -16,7 +16,7 @@
 
 ## 📸 界面预览
 
-新版界面采用紧凑卡片式悬浮窗（旧版截图不再适用，以实际安装效果为准）：
+新版界面采用紧凑卡片式悬浮窗：
 
 - **收起状态**：渐变礼盒悬浮球，可停靠左下角或右下角
 - **展开状态**：顶部显示等级与积分，中部为 PC 搜索 / 活动 / 阅读进度条
@@ -62,16 +62,16 @@
 ### 安装步骤
 
 1. **安装脚本管理器**
-   - Chrome/Edge: [Tampermonkey](https://chrome.google.com/webstore/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
+   - Chrome/Edge: [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
    - Firefox: [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/)
 
 2. **安装脚本**
-   - 点击 [安装链接](https://github.com/QingJ01/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js)
+   - 点击 [安装链接](https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js)
    - 或手动复制 `GetMicrosoftRewards.user.js` 内容到 Tampermonkey 新建脚本
 
 3. **访问 Bing**
    - 打开 [https://www.bing.com](https://www.bing.com) 或 [https://rewards.bing.com](https://rewards.bing.com)
-   - 右下角会出现礼盒图标 🎁
+   - 页面右下角会出现礼盒图标 🎁（可在设置中改到左下角）
 
 ---
 
@@ -80,7 +80,7 @@
 ### 基础使用
 
 1. **查看进度**
-   - 点击右下角礼盒图标展开面板
+   - 点击礼盒图标展开面板（默认右下角）
    - 查看当前等级、积分、各项任务进度
 
 2. **执行任务**
@@ -133,16 +133,16 @@
 | 设置项 | 可选值 | 说明 |
 | --- | --- | --- |
 | 图标位置 | 右下角 / 左下角 | 悬浮图标的停靠位置 |
-| 任务间隔 | 快速 / 推荐 / 保守 | 每次搜索的随机等待区间（12–22 / 22–45 / 45–80 秒），并会偶发额外长停顿 |
+| 任务间隔 | 快速 / 推荐 / 保守 | 搜索的随机等待区间（12–22 / 22–45 / 45–80 秒）与活动间隔，并会偶发额外长停顿 |
 | 自动分段暂停 | 开 / 关 | 按预设节奏在连续搜索后自动休息 |
 
 设置保存在 `GM_setValue` 中，刷新页面后依然生效。如需修改热搜源或预设区间，可编辑脚本中的 `CONFIG` 与 `PRESETS`：
 
 ```javascript
 const PRESETS = {
-    fast:        { min: 12000, max: 22000, pauseEvery: 12, pauseMs: 5 * 60 * 1000 },
-    recommended: { min: 22000, max: 45000, pauseEvery: 10, pauseMs: 10 * 60 * 1000 },
-    safe:        { min: 45000, max: 80000, pauseEvery: 6,  pauseMs: 15 * 60 * 1000 }
+    fast:        { min: 12000, max: 22000, pauseEvery: 12, pauseMs: 5 * 60 * 1000,  taskMin: 1200, taskMax: 2500 },
+    recommended: { min: 22000, max: 45000, pauseEvery: 10, pauseMs: 10 * 60 * 1000, taskMin: 2000, taskMax: 4000 },
+    safe:        { min: 45000, max: 80000, pauseEvery: 6,  pauseMs: 15 * 60 * 1000, taskMin: 3500, taskMax: 7000 }
 };
 ```
 
@@ -160,7 +160,7 @@ const PRESETS = {
 **A**: 
 - 部分活动是问卷/测验，需要真实点击选项，脚本只能尝试自动上报
 - 确认已登录 rewards.bing.com，并在面板中刷新一次数据
-- 新版活动卡会依次尝试 App 通道、Server Action、旧接口三种方式，若账号触发风控会失败
+- 新版活动卡会依次尝试 App 接口、Server Action、旧接口，并回退访问活动页；若账号触发风控会失败
 
 ### Q: 签到/阅读任务失败？
 **A**: 
@@ -194,9 +194,9 @@ const PRESETS = {
 
 ## 🤝 贡献
 
-欢迎提交 Issue 和 Pull Request！
+欢迎提交 [Issue](https://github.com/junyi5d/Get-Microsoft-Rewards/issues) 和 [Pull Request](https://github.com/junyi5d/Get-Microsoft-Rewards/pulls)！
 
-1. Fork 本仓库
+1. [Fork 本仓库](https://github.com/junyi5d/Get-Microsoft-Rewards/fork)
 2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
 3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
@@ -223,9 +223,9 @@ const PRESETS = {
 
 如果这个项目对您有帮助，欢迎：
 
-- ⭐ Star 本仓库
-- 🐛 提交 Bug 报告
-- 💡 提出新功能建议
+- ⭐ Star [本仓库](https://github.com/junyi5d/Get-Microsoft-Rewards)
+- 🐛 [提交 Bug 报告](https://github.com/junyi5d/Get-Microsoft-Rewards/issues/new)
+- 💡 [提出新功能建议](https://github.com/junyi5d/Get-Microsoft-Rewards/issues/new)
 - 📣 分享给更多人
 
 ---
