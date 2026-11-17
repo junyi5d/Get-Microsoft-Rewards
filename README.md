@@ -66,7 +66,7 @@
    - Firefox: [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/)
 
 2. **安装脚本**
-   - 点击 [安装链接](https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js)
+   - 点击 [安装链接](https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/get-microsoft-rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js)
    - 或手动复制 `GetMicrosoftRewards.user.js` 内容到 Tampermonkey 新建脚本
 
 3. **访问 Bing**
