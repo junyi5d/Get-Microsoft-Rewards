@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.2
+// @version      1.1.3
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -144,6 +144,7 @@
         readMax: 0,
         edgeCur: 0,
         edgeMax: 0,
+        streak: 0,
         edgeNoticed: false,
         running: false,
         allRunning: false,
@@ -170,6 +171,37 @@
             if (!raw) return;
             const data = JSON.parse(raw);
             if (data.date === getDateHyphen()) state.searchCount = Number(data.searchCount) || 0;
+        } catch (e) { }
+    }
+
+    // ========== 连续打卡 ==========
+    function loadLocalStreak() {
+        try {
+            const data = JSON.parse(GM_getValue('mr_streak') || '{}');
+            if (!data.days) return;
+            const y = new Date(Date.now() - 86400000);
+            const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+            if (data.date === getDateHyphen() || data.date === yStr) {
+                state.streak = Math.max(state.streak, Number(data.days) || 0);
+            }
+        } catch (e) { }
+    }
+
+    function recordSignStreak() {
+        try {
+            const today = getDateHyphen();
+            const data = JSON.parse(GM_getValue('mr_streak') || '{}');
+            if (data.date === today) {
+                state.streak = Math.max(state.streak, Number(data.days) || 0);
+                render();
+                return;
+            }
+            const y = new Date(Date.now() - 86400000);
+            const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
+            const days = (data.date === yStr ? (Number(data.days) || 0) : 0) + 1;
+            GM_setValue('mr_streak', JSON.stringify({ date: today, days }));
+            state.streak = Math.max(state.streak, days);
+            render();
         } catch (e) { }
     }
 
@@ -366,6 +398,8 @@
             border: 1px solid #cfe5fb;
             padding: 2px 8px; border-radius: 999px;
         }
+        #mr-badges { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
+        #mr-streak { font-size: 10px; color: var(--mr-muted); white-space: nowrap; }
 
         .mr-metric { padding: 9px 14px 0; }
         .mr-metric-top { display: flex; justify-content: space-between; font-size: 11px; color: var(--mr-muted); margin-bottom: 5px; }
@@ -680,9 +714,16 @@
 
             <div id="mr-points-box">
                 <div><span id="mr-points">0</span><span id="mr-points-unit">积分</span></div>
-                <span id="mr-level">Lv.1</span>
+                <div id="mr-badges">
+                    <span id="mr-streak" class="mr-hidden">🔥 连续 0 天</span>
+                    <span id="mr-level">Lv.1</span>
+                </div>
             </div>
 
+            <div class="mr-metric">
+                <div class="mr-metric-top"><span>阅读任务</span><span id="mr-read">0/0</span></div>
+                <div class="mr-track"><i class="mr-fill orange" id="mr-read-bar"></i></div>
+            </div>
             <div class="mr-metric">
                 <div class="mr-metric-top"><span>PC 搜索</span><span id="mr-pc">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill" id="mr-pc-bar"></i></div>
@@ -690,10 +731,6 @@
             <div class="mr-metric">
                 <div class="mr-metric-top"><span>活动任务</span><span id="mr-promo">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill green" id="mr-promo-bar"></i></div>
-            </div>
-            <div class="mr-metric">
-                <div class="mr-metric-top"><span>阅读任务</span><span id="mr-read">0/0</span></div>
-                <div class="mr-track"><i class="mr-fill orange" id="mr-read-bar"></i></div>
             </div>
             <div class="mr-metric">
                 <div class="mr-metric-top"><span>🌐 Edge 30 分钟</span><span id="mr-edge">—</span></div>
@@ -720,7 +757,7 @@
                 <button class="mr-btn" id="btn-sign">${ICONS.check}<span>签到</span></button>
                 <button class="mr-btn" id="btn-read">${ICONS.book}<span>阅读</span></button>
                 <button class="mr-btn" id="btn-search">${ICONS.search}<span>搜索</span></button>
-                <button class="mr-btn" id="btn-promo">${ICONS.target}<span>活动</span><span id="val-promo">0/0</span></button>
+                <button class="mr-btn" id="btn-promo">${ICONS.target}<span>活动</span></button>
                 <button class="mr-btn mr-primary" id="btn-all">${ICONS.rocket}<span>一键全部执行</span></button>
             </div>
 
@@ -739,6 +776,7 @@
         close: $('#mr-close'),
         settingsBtn: $('#mr-settings-btn'),
         level: $('#mr-level'),
+        streak: $('#mr-streak'),
         points: $('#mr-points'),
         pc: $('#mr-pc'),
         pcBar: $('#mr-pc-bar'),
@@ -754,7 +792,6 @@
         statusBar: $('#mr-status-bar'),
         btnSearch: $('#btn-search'),
         btnPromo: $('#btn-promo'),
-        valPromo: $('#val-promo'),
         btnSign: $('#btn-sign'),
         btnRead: $('#btn-read'),
         btnAll: $('#btn-all'),
@@ -891,6 +928,12 @@
         nodes.level.textContent = state.levelName || `Lv.${state.level}`;
         nodes.level.title = state.levelName ? `${state.levelName}（Lv.${state.level}）` : `Lv.${state.level}`;
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
+        if (state.streak > 0) {
+            nodes.streak.textContent = `🔥 连续 ${state.streak} 天`;
+            nodes.streak.classList.remove('mr-hidden');
+        } else {
+            nodes.streak.classList.add('mr-hidden');
+        }
         setMetric(nodes.pc, nodes.pcBar, state.pcCur, state.pcMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
         setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
@@ -900,7 +943,6 @@
             nodes.edge.textContent = '—';
             nodes.edgeBar.style.width = '0%';
         }
-        nodes.valPromo.textContent = `${state.promosDone}/${state.promosTotal}`;
     }
 
     // ========== 授权 ==========
@@ -1009,6 +1051,15 @@
     }
 
     // ========== 数据获取（基于 rewards.bing.com/dashboard） ==========
+    /*
+     * 自动化基准（对照 rewards.bing.com/dashboard 与 /earn 的任务分类）：
+     * 1. 每日签到 DailyCheckIn        → DAPI type 103
+     * 2. 阅读 readarticle*            → DAPI type 101，分步上报
+     * 3. PC 搜索 pcSearch             → cn.bing.com 真实会话搜索 + ncheader/reportActivity
+     * 4. 每日活动 dailySet/morePromotions → DAPI / Server Action / 旧接口 / 访问目标页
+     * 5. Edge 30 分钟                 → 由 Edge 客户端计时，仅展示进度
+     * 6. 连续打卡 streak              → 读取页面数据并本地记录，仅展示
+     */
     function normalizePromo(raw) {
         if (!raw || typeof raw !== 'object') return null;
         const a = raw.attributes && typeof raw.attributes === 'object' ? raw.attributes : {};
@@ -1078,7 +1129,7 @@
     }
 
     async function fetchDashboard() {
-        const out = { promos: [], user: null, pc: null, levelName: '' };
+        const out = { promos: [], user: null, pc: null, levelName: '', activeLevel: 0, streak: 0 };
 
         // 1) Dashboard / Earn 页面（新版页面把任务数据放在 Flight 流里）
         for (const page of ['https://rewards.bing.com/dashboard', 'https://rewards.bing.com/earn']) {
@@ -1109,10 +1160,12 @@
                         if (cur && max) out.pc = { cur: Number(cur[1]), max: Number(max[1]) };
                     }
 
+                    if (!out.activeLevel) out.activeLevel = parseActiveLevel(null, plain);
                     if (!out.levelName) {
-                        const lv = extractLevelName(null, plain);
-                        if (lv) out.levelName = lv;
+                        const lvName = extractLevelName(null, plain, out.activeLevel);
+                        if (lvName) out.levelName = lvName;
                     }
+                    if (!out.streak) out.streak = parseStreak(plain);
                 }
             } catch (e) {
                 console.warn(`[MR] ${page} 获取失败`, e);
@@ -1135,6 +1188,12 @@
             const dashboard = data.dashboard || data;
             if (dashboard && (dashboard.userStatus || dashboard.morePromotions || dashboard.dailySetPromotions)) {
                 out.user = dashboard.userStatus || null;
+                if (!out.activeLevel) out.activeLevel = parseActiveLevel(out.user, res);
+                if (!out.levelName) {
+                    const lvName = extractLevelName(out.user, res, out.activeLevel);
+                    if (lvName) out.levelName = lvName;
+                }
+                if (!out.streak) out.streak = parseStreak(res);
                 const dailyMap = dashboard.dailySetPromotions || {};
                 const daily = dailyMap[getDateStr()] || Object.values(dailyMap).flat();
                 const rawList = [...(daily || []), ...(dashboard.morePromotions || [])];
@@ -1211,19 +1270,60 @@
         return { cur: clamp(cur, 0, max), max };
     }
 
-    // 解析会员等级名称（如「金牌会员」），避免只显示 Lv.1
-    function extractLevelName(user, text) {
-        const info = (user && (user.levelInfo || user.level)) || {};
-        const cands = [info.activeLevelName, info.levelName, info.name, user && user.levelName, user && user.tierName];
-        for (const c of cands) {
-            const s = String(c || '').trim();
-            if (s && !/^level\s*\d+$/i.test(s) && !/^\d+$/.test(s)) return s;
+    // 解析当前会员等级数字（优先接口字段，其次页面 JSON）
+    function parseActiveLevel(user, text) {
+        const info = (user && (user.levelInfo || {})) || {};
+        const raw = info.activeLevel === undefined ? (user && user.level) : info.activeLevel;
+        const n = parseInt(String(raw === undefined ? '' : raw).replace(/\D/g, ''), 10);
+        if (n > 0) return n;
+        const m = String(text || '').match(/"(?:activeLevel|levelNumber|currentLevel)"\s*:\s*(\d+)/i);
+        return m ? Number(m[1]) : 0;
+    }
+
+    // 解析会员等级名称（以 rewards 页面为准，避免接口给出过期的「银牌会员」）
+    function extractLevelName(user, text, level) {
+        const info = (user && (user.levelInfo || {})) || {};
+        const lv = level || parseActiveLevel(user, text);
+        const s = String(text || '');
+
+        // 1) 页面等级阶梯：按 activeLevel 精确匹配，如 {"level":2,...,"levelName":"金牌会员"}
+        if (s && lv) {
+            const re1 = /"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)[^{}]{0,200}?"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"/g;
+            const re2 = /"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"[^{}]{0,200}?"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)/g;
+            let m;
+            while ((m = re1.exec(s)) !== null) {
+                if (Number(m[1]) === lv) return m[2].trim();
+            }
+            while ((m = re2.exec(s)) !== null) {
+                if (Number(m[2]) === lv) return m[1].trim();
+            }
         }
-        const cn = String(text || '').match(/(金牌|银牌|铜牌|白金|钻石)\s*会员/);
-        if (cn) return cn[0].replace(/\s+/g, '');
-        const en = String(text || '').match(/"(?:activeLevelName|levelName)"\s*:\s*"([^"]{2,24})"/);
-        if (en && !/^level\s*\d+$/i.test(en[1])) return en[1];
+
+        // 2) 页面上「当前等级：金牌会员」这类上下文
+        const ctx = s.match(/(?:当前(?:等级|会员)|会员等级|当前会员|你的等级)[\s\S]{0,80}?((?:金牌|银牌|铜牌|白金|钻石)\s*会员)/);
+        if (ctx) return ctx[1].replace(/\s+/g, '');
+
+        // 3) 页面 JSON 中的等级名称
+        const nm = s.match(/"(?:activeLevelName|levelName)"\s*:\s*"([^"]{2,24})"/);
+        if (nm && !/^level\s*\d+$/i.test(nm[1])) return nm[1].trim();
+
+        // 4) 接口字段兜底
+        const direct = [info.activeLevelName, info.levelName, user && user.levelName, user && user.tierName];
+        for (const c of direct) {
+            const name = String(c || '').trim();
+            if (name && !/^level\s*\d+$/i.test(name) && !/^\d+$/.test(name)) return name;
+        }
+
         return '';
+    }
+
+    // 解析连续打卡天数（页面字段或文案）
+    function parseStreak(text) {
+        const s = String(text || '');
+        const j = s.match(/"(?:streak|checkInStreak|consecutiveDays|dayStreak)"\s*:\s*(\d+)/i);
+        if (j) return Number(j[1]);
+        const t = s.match(/(?:已)?连续(?:打卡|签到)?[^\d]{0,8}(\d+)\s*天/);
+        return t ? Number(t[1]) : 0;
     }
 
     // 与活动无关的任务（签到 / 阅读）不计入活动进度
@@ -1267,8 +1367,9 @@
                 const user = dash.user || {};
                 const rawLevel = user.levelInfo && user.levelInfo.activeLevel ? user.levelInfo.activeLevel : user.level;
                 if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
-                const levelName = dash.levelName || extractLevelName(user, '');
+                const levelName = dash.levelName || extractLevelName(user, '', state.level);
                 if (levelName) state.levelName = levelName;
+                if (dash.streak > 0) state.streak = Math.max(state.streak, dash.streak);
 
                 const counters = (user && user.counters) || {};
                 const dapiPc = extractCounter(dapi && dapi.counters, 'pcSearch');
@@ -1510,6 +1611,8 @@
                 useCookies: true,
                 retries: 0
             });
+            // 模拟在目标页停留一段时间
+            await sleep(randomRange(1500, 3500));
             return true;
         } catch (e) {
             return false;
@@ -1654,6 +1757,9 @@
     async function completePromo(promo, token) {
         let accepted = false;
 
+        // 模拟真实浏览：先停留一会儿再交卷
+        await sleep(randomRange(900, 2400));
+
         // 通道 1：DAPI（与 Rewards App 同源）
         try {
             const hasToken = await getAccessToken({ silent: true });
@@ -1701,7 +1807,7 @@
             log('正在读取 Rewards 任务...');
             await updateData({ quiet: true });
 
-            const tasks = state.promos.filter(isPromoEligible);
+            const tasks = shuffle(state.promos.filter(isPromoEligible));
             if (!tasks.length) {
                 log(`暂无可执行活动（已完成 ${state.promosDone}/${state.promosTotal}）`);
                 return;
@@ -1782,6 +1888,7 @@
             const activity = data.response && data.response.activity;
             if (activity && (activity.p || activity.points)) {
                 log(`签到成功，获得 ${activity.p || activity.points} 积分`);
+                recordSignStreak();
             } else if (data.response && (data.response.isDuplicate || activity === null)) {
                 log('今日已签到');
             } else {
@@ -2029,9 +2136,10 @@
     (async () => {
         applyPosition();
         loadProgress();
+        loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.2');
+        log('脚本就绪 v1.1.3');
 
         await updateData({ quiet: true });
 
