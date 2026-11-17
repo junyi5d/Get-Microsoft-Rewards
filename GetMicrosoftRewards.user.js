@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.0
+// @version      1.1.1
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -69,7 +69,7 @@
         safe: { label: '保守', desc: '45–80 秒/次', min: 45000, max: 80000, pauseEvery: 6, pauseMs: 15 * 60 * 1000, taskMin: 3500, taskMax: 7000 }
     };
 
-    const DEFAULT_SETTINGS = { position: 'right', preset: 'recommended', autoPause: true };
+    const DEFAULT_SETTINGS = { position: 'left', preset: 'recommended', autoPause: true };
     const SETTINGS_KEY = 'mr_settings_v2';
     const STORAGE_KEY = 'mr_search_progress';
 
@@ -113,7 +113,7 @@
             const data = JSON.parse(raw);
             const merged = { ...DEFAULT_SETTINGS, ...data };
             if (!PRESETS[merged.preset]) merged.preset = 'recommended';
-            if (merged.position !== 'left') merged.position = 'right';
+            if (merged.position !== 'right') merged.position = 'left';
             return merged;
         } catch (e) {
             return { ...DEFAULT_SETTINGS };
@@ -141,6 +141,9 @@
         promosDone: 0,
         readCur: 0,
         readMax: 0,
+        edgeCur: 0,
+        edgeMax: 0,
+        edgeNoticed: false,
         running: false,
         allRunning: false,
         busyCount: 0,
@@ -292,7 +295,6 @@
             color: var(--mr-fg);
             -webkit-font-smoothing: antialiased;
         }
-        #mr-panel.pos-left { left: 22px; right: auto; }
         #mr-panel * { box-sizing: border-box; }
         #mr-panel button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
         #mr-panel svg { width: 16px; height: 16px; display: block; }
@@ -538,16 +540,122 @@
         }
     `);
 
+    // 经典配色（还原旧版观感：白底圆形图标 + 简洁面板）
+    GM_addStyle(`
+        #mr-panel {
+            left: 20px; right: auto; bottom: 20px;
+            color: #333;
+        }
+        #mr-panel.pos-right { left: auto; right: 20px; }
+
+        #mr-panel.collapsed {
+            width: 44px; height: 44px;
+            border-radius: 50%;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            box-shadow: 0 4px 16px rgba(0, 120, 212, .3);
+            color: #0078d4;
+            cursor: pointer;
+        }
+        #mr-panel.collapsed:hover { transform: scale(1.1); box-shadow: 0 6px 20px rgba(0, 120, 212, .4); }
+        #mr-fab { width: 44px; height: 44px; background: none; box-shadow: none; color: #0078d4; }
+        #mr-fab:hover { transform: none; box-shadow: none; }
+        #mr-fab svg { width: 24px; height: 24px; fill: currentColor; stroke: none; }
+
+        #mr-widget {
+            width: 300px;
+            background: #fff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, .14);
+        }
+        #mr-header {
+            padding: 10px 12px;
+            background: #f8f9fa;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            border-radius: 8px 8px 0 0;
+        }
+        #mr-title { font-size: 13px; font-weight: 600; color: #333; }
+        #mr-sub { color: #999; }
+        .mr-icon-btn { color: #777; background: none; font-size: 14px; }
+        .mr-icon-btn:hover { background: #eef0f2; color: #333; }
+        #mr-set-head { background: #f8f9fa; color: #333; border-bottom: 1px solid #eee; }
+        #mr-set-close { color: #999; font-size: 18px; }
+        #mr-set-close:hover { color: #333; }
+
+        #mr-points { color: #d83b01; font-size: 24px; letter-spacing: 0; }
+        #mr-points-unit { color: #999; }
+        #mr-level { color: #0078d4; background: none; border: 0; padding: 0; font-size: 11px; }
+        .mr-metric-top { color: #555; }
+        .mr-metric-top span:last-child { color: #333; }
+        .mr-track { height: 4px; background: #eee; border-radius: 2px; }
+        .mr-fill { background: #0078d4; }
+        .mr-fill.green { background: #16a34a; }
+        .mr-fill.orange { background: #ff8c00; }
+        .mr-fill.purple { background: #7c3aed; }
+
+        #mr-status { background: #f7f8fa; border: 1px solid #eee; border-radius: 6px; }
+        #mr-status-text { color: #0078d4; }
+        #mr-status-time { color: #333; }
+
+        #mr-auth { background: #fff8e1; border: 1px solid #ffe0b2; border-radius: 6px; }
+        .mr-auth-title { color: #8a5a00; }
+        #mr-auth-in { border: 1px solid #ddd; background: #fff; color: #333; border-radius: 4px; }
+        .mr-auth-link { background: #fff; color: #555; border: 1px solid #ddd; border-radius: 4px; }
+        .mr-auth-save { background: #0078d4; color: #fff; border: 0; border-radius: 4px; }
+
+        .mr-btn { background: #fff; border: 1px solid #d0d0d0; border-radius: 4px; }
+        .mr-btn:hover { background: #f5f5f5; border-color: #bbb; }
+        .mr-btn.mr-primary { background: #0078d4; box-shadow: none; border: 0; border-radius: 4px; }
+        .mr-btn.mr-primary:hover { background: #006abc; }
+
+        #mr-log-wrap { border: 1px solid #eee; border-radius: 4px; }
+        #mr-log-head { background: #fafafa; color: #888; }
+        #mr-log { height: 112px; background: #fff; color: #666; }
+
+        #mr-settings { background: #fff; color: #333; border-radius: 8px; }
+        .mr-set-title { color: #555; }
+        .mr-seg button, .mr-presets button { background: #fff; border-color: #ddd; color: #555; border-radius: 4px; }
+        .mr-seg button.active, .mr-presets button.active { background: #e8f2fc; border-color: #0078d4; color: #0078d4; }
+        .mr-set-ghost { background: #f5f5f5; border-color: #ddd; color: #555; }
+        .mr-set-primary { background: #0078d4; }
+        .mr-set-primary:hover { background: #006abc; }
+
+        @media (prefers-color-scheme: dark) {
+            #mr-panel { color: #e6edf3; }
+            #mr-panel.collapsed { background: #1c2128; border-color: #30363d; color: #4da3ff; }
+            #mr-widget { background: #1c2128; border-color: #30363d; }
+            #mr-header, #mr-set-head { background: #232a33; border-color: #30363d; color: #e6edf3; }
+            #mr-title, #mr-set-head span { color: #e6edf3; }
+            #mr-sub, #mr-log-head { color: #8b949e; }
+            #mr-points-unit { color: #8b949e; }
+            .mr-metric-top span:last-child { color: #e6edf3; }
+            .mr-track { background: #30363d; }
+            #mr-status { background: #232a33; border-color: #30363d; }
+            #mr-status-time { color: #e6edf3; }
+            .mr-btn { background: #232a33; border-color: #30363d; color: #e6edf3; }
+            .mr-btn:hover { background: #2c353f; }
+            #mr-log { background: #1c2128; color: #9aa4b0; }
+            #mr-settings { background: #1c2128; color: #e6edf3; }
+            .mr-seg button, .mr-presets button { background: #232a33; border-color: #30363d; color: #c9d1d9; }
+            .mr-set-title, .mr-check { color: #c9d1d9; }
+            .mr-set-ghost { background: #232a33; border-color: #30363d; color: #c9d1d9; }
+            #mr-auth { background: #2a2314; border-color: #4a3a17; }
+            #mr-auth-in { background: #1c2128; border-color: #4a3a17; color: #e6edf3; }
+        }
+    `);
+
     // ========== 图标 ==========
     const ICONS = {
-        gift: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/><path d="M12 8v13"/><path d="M12 8c-1.2-2.6-3-4-4.5-3.2C6 5.6 6.6 8 12 8Z"/><path d="M12 8c1.2-2.6 3-4 4.5-3.2C18 5.6 17.4 8 12 8Z"/></svg>',
-        gear: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.14.36.43.65.79.79H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>',
-        collapse: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>',
-        search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>',
-        target: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>',
-        check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
-        book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z"/></svg>',
-        rocket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 16.5c-1.5 1.3-2 5-2 5s3.7-.5 5-2c.7-.8.7-2 0-2.8-.8-.7-2-.8-3-.2Z"/><path d="M12 15 9 12a13 13 0 0 1 3-8c3-2 7-2 7-2s0 4-2 7a13 13 0 0 1-8 3Z"/><path d="M15 9a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z"/></svg>'
+        gift: '<svg viewBox="0 0 24 24"><path d="M20 6h-3V4c0-1.1-.9-2-2-2H9c-1.1 0-2 .9-2 2v2H4c-1.1 0-2 .9-2 2v3h2v9c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-9h2V8c0-1.1-.9-2-2-2zm-9-2h2v2h-2V4zm0 16H6v-9h5v9zm6 0h-5v-9h5v9zm1.5-11H16V7h2v2zm-4.5 0h-2V7h2v2zm-4.5 0H7V7h2v2zm-3.5 0H4V7h1.5v2z"/></svg>',
+        gear: '⚙️',
+        collapse: '✕',
+        search: '🔍',
+        target: '🎯',
+        check: '✅',
+        book: '📖',
+        rocket: '🚀'
     };
 
     // ========== UI ==========
@@ -586,6 +694,10 @@
                 <div class="mr-metric-top"><span>阅读任务</span><span id="mr-read">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill orange" id="mr-read-bar"></i></div>
             </div>
+            <div class="mr-metric">
+                <div class="mr-metric-top"><span>🌐 Edge 30 分钟</span><span id="mr-edge">—</span></div>
+                <div class="mr-track"><i class="mr-fill purple" id="mr-edge-bar"></i></div>
+            </div>
 
             <div id="mr-status">
                 <div class="mr-status-line">
@@ -611,8 +723,8 @@
                 <button class="mr-btn mr-primary" id="btn-all">${ICONS.rocket}<span>一键全部执行</span></button>
             </div>
 
-            <div id="mr-log-wrap" class="collapsed">
-                <div id="mr-log-head"><span>运行日志</span><span id="mr-log-toggle">展开</span></div>
+            <div id="mr-log-wrap">
+                <div id="mr-log-head"><span>运行日志</span><span id="mr-log-toggle">收起</span></div>
                 <div id="mr-log"></div>
             </div>
         </div>
@@ -633,6 +745,8 @@
         promoBar: $('#mr-promo-bar'),
         read: $('#mr-read'),
         readBar: $('#mr-read-bar'),
+        edge: $('#mr-edge'),
+        edgeBar: $('#mr-edge-bar'),
         status: $('#mr-status'),
         statusText: $('#mr-status-text'),
         statusTime: $('#mr-status-time'),
@@ -718,11 +832,11 @@
     function updateAllButton() {
         if (!nodes.btnAll) return;
         if (state.manualPaused) {
-            nodes.btnAll.innerHTML = `${ICONS.check}<span>继续执行</span>`;
+            nodes.btnAll.innerHTML = '<span>▶️ 继续执行</span>';
         } else if (state.running || state.allRunning || state.busyCount > 0) {
-            nodes.btnAll.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><span>暂停执行</span>';
+            nodes.btnAll.innerHTML = '<span>⏸️ 暂停执行</span>';
         } else {
-            nodes.btnAll.innerHTML = `${ICONS.rocket}<span>一键全部执行</span>`;
+            nodes.btnAll.innerHTML = '<span>🚀 一键全部执行</span>';
         }
     }
 
@@ -770,6 +884,12 @@
         setMetric(nodes.pc, nodes.pcBar, state.pcCur, state.pcMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
         setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
+        if (state.edgeMax > 0) {
+            setMetric(nodes.edge, nodes.edgeBar, state.edgeCur, state.edgeMax);
+        } else {
+            nodes.edge.textContent = '—';
+            nodes.edgeBar.style.width = '0%';
+        }
         nodes.valPromo.textContent = `${state.promosDone}/${state.promosTotal}`;
     }
 
@@ -1056,6 +1176,12 @@
     // 与活动无关的任务（签到 / 阅读）不计入活动进度
     const NON_ACTIVITY = /readarticle|DailyCheckIn|Install_RewardsApp/i;
 
+    // Edge 每日浏览 30 分钟：由 Edge 客户端累计时长，网页脚本无法代完成
+    function isEdgeBrowse(promo) {
+        const title = String((promo && promo.title) || '');
+        return /edge/i.test(title) && /(浏览|browse)/i.test(title) && /(30|分钟|minute|min\b)/i.test(title);
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1068,9 +1194,22 @@
                     map.set(promo.offerId, map.has(promo.offerId) ? mergePromo(map.get(promo.offerId), promo) : promo);
                 }
                 const activePromos = [...map.values()].filter(p => !p.hidden && !NON_ACTIVITY.test(p.offerId));
-                state.promos = activePromos;
-                state.promosTotal = activePromos.length;
-                state.promosDone = activePromos.filter(p => p.complete).length;
+
+                // Edge 阅读时长任务只展示进度，不参与自动执行
+                const edgePromo = activePromos.find(isEdgeBrowse);
+                if (edgePromo) {
+                    state.edgeCur = edgePromo.progress;
+                    state.edgeMax = edgePromo.max;
+                    if (!state.edgeNoticed) {
+                        state.edgeNoticed = true;
+                        log(`检测到「${shorten(edgePromo.title, 16)}」：需在 Edge 浏览器中实际浏览，脚本无法代完成`);
+                    }
+                }
+
+                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p));
+                state.promos = autoPromos;
+                state.promosTotal = autoPromos.length;
+                state.promosDone = autoPromos.filter(p => p.complete).length;
 
                 const user = dash.user || {};
                 const rawLevel = user.levelInfo && user.levelInfo.activeLevel ? user.levelInfo.activeLevel : user.level;
@@ -1173,7 +1312,6 @@
                 log('网页会话未登录，搜索不会计分，请先在 cn.bing.com 登录');
                 return false;
             }
-            log(`搜索：${shorten(query, 18)}`);
             return true;
         } catch (e) {
             log(`搜索失败：${e.message}`);
@@ -1184,7 +1322,7 @@
     async function runSearch() {
         if (state.running) {
             state.running = false;
-            nodes.btnSearch.innerHTML = `${ICONS.search}<span>搜索</span>`;
+            nodes.btnSearch.innerHTML = '<span>🔍 搜索</span>';
             updateAllButton();
             return;
         }
@@ -1194,7 +1332,7 @@
         }
 
         state.running = true;
-        nodes.btnSearch.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg><span>停止</span>';
+        nodes.btnSearch.innerHTML = '<span>⏹️ 停止</span>';
         updateAllButton();
 
         try {
@@ -1221,7 +1359,9 @@
 
                 const query = await getHotQuery(used);
                 used.add(query);
-                setBusyStatus(`正在搜索：${shorten(query, 14)}`);
+                const stepNo = done + 1;
+                setBusyStatus(`第 ${stepNo} 步：搜索 ${shorten(query, 14)}`);
+                log(`第 ${stepNo} 步：搜索「${shorten(query, 18)}」（剩余 ${remain} 次）`);
 
                 const ok = await doSearch(query);
                 if (!ok) {
@@ -1268,7 +1408,7 @@
             log(`搜索流程异常：${e.message}`);
         } finally {
             state.running = false;
-            nodes.btnSearch.innerHTML = `${ICONS.search}<span>搜索</span>`;
+            nodes.btnSearch.innerHTML = '<span>🔍 搜索</span>';
             setStatus('就绪');
             updateAllButton();
             saveProgress();
@@ -1526,6 +1666,7 @@
                 if (state.manualPaused) await waitWhilePaused();
                 const promo = tasks[i];
                 setBusyStatus(`活动 ${i + 1}/${tasks.length}：${shorten(promo.title, 14)}`);
+                log(`活动 ${i + 1}/${tasks.length}：${shorten(promo.title, 20)}`);
 
                 const done = await completePromo(promo, token);
                 if (done) {
@@ -1752,7 +1893,7 @@
     }
 
     function applyPosition() {
-        nodes.panel.classList.toggle('pos-left', settings.position === 'left');
+        nodes.panel.classList.toggle('pos-right', settings.position === 'right');
     }
 
     nodes.settingsBtn.onclick = e => {
@@ -1839,7 +1980,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.0');
+        log('脚本就绪 v1.1.1');
 
         await updateData({ quiet: true });
 
