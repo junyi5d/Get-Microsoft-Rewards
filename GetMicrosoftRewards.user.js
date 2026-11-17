@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.1
+// @version      1.1.2
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -133,6 +133,7 @@
     // ========== 状态 ==========
     const state = {
         level: 1,
+        levelName: '',
         points: 0,
         pcCur: 0,
         pcMax: 0,
@@ -716,10 +717,10 @@
             </div>
 
             <div id="mr-actions">
-                <button class="mr-btn" id="btn-search">${ICONS.search}<span>搜索</span></button>
-                <button class="mr-btn" id="btn-promo">${ICONS.target}<span>活动</span><span id="val-promo">0/0</span></button>
                 <button class="mr-btn" id="btn-sign">${ICONS.check}<span>签到</span></button>
                 <button class="mr-btn" id="btn-read">${ICONS.book}<span>阅读</span></button>
+                <button class="mr-btn" id="btn-search">${ICONS.search}<span>搜索</span></button>
+                <button class="mr-btn" id="btn-promo">${ICONS.target}<span>活动</span><span id="val-promo">0/0</span></button>
                 <button class="mr-btn mr-primary" id="btn-all">${ICONS.rocket}<span>一键全部执行</span></button>
             </div>
 
@@ -828,6 +829,14 @@
         return ms;
     }
 
+    // 阅读 / 活动间隔：跟随当前预设随机，并偶发长停顿
+    function nextTaskDelay() {
+        const preset = currentPreset();
+        let ms = randomRange(preset.taskMin, preset.taskMax);
+        if (Math.random() < 0.12) ms += randomRange(8000, 20000);
+        return ms;
+    }
+
     // ========== 手动暂停 ==========
     function updateAllButton() {
         if (!nodes.btnAll) return;
@@ -879,7 +888,8 @@
     }
 
     function render() {
-        nodes.level.textContent = `Lv.${state.level}`;
+        nodes.level.textContent = state.levelName || `Lv.${state.level}`;
+        nodes.level.title = state.levelName ? `${state.levelName}（Lv.${state.level}）` : `Lv.${state.level}`;
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
         setMetric(nodes.pc, nodes.pcBar, state.pcCur, state.pcMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
@@ -1068,7 +1078,7 @@
     }
 
     async function fetchDashboard() {
-        const out = { promos: [], user: null, pc: null };
+        const out = { promos: [], user: null, pc: null, levelName: '' };
 
         // 1) Dashboard / Earn 页面（新版页面把任务数据放在 Flight 流里）
         for (const page of ['https://rewards.bing.com/dashboard', 'https://rewards.bing.com/earn']) {
@@ -1097,6 +1107,11 @@
                         const cur = pcSeg[0].match(/"pointProgress"\s*:\s*(\d+)/);
                         const max = pcSeg[0].match(/"pointProgressMax"\s*:\s*(\d+)/);
                         if (cur && max) out.pc = { cur: Number(cur[1]), max: Number(max[1]) };
+                    }
+
+                    if (!out.levelName) {
+                        const lv = extractLevelName(null, plain);
+                        if (lv) out.levelName = lv;
                     }
                 }
             } catch (e) {
@@ -1167,10 +1182,48 @@
         let src = counters && counters[key];
         if (!src) return { cur: 0, max: 0 };
         if (Array.isArray(src)) src = src[0] || {};
-        return {
-            cur: Number(src.pointProgress === undefined ? src.progress : src.pointProgress) || 0,
-            max: Number(src.pointProgressMax === undefined ? src.max : src.pointProgressMax) || 0
-        };
+        const pCur = Number(src.pointProgress === undefined ? 0 : src.pointProgress) || 0;
+        const pMax = Number(src.pointProgressMax === undefined ? 0 : src.pointProgressMax) || 0;
+        const cMax = Number(src.max === undefined ? (src.progressMax === undefined ? 0 : src.progressMax) : src.max) || 0;
+        const cCur = Number(src.progress === undefined ? (src.activityProgress === undefined ? 0 : src.activityProgress) : src.progress) || 0;
+        // 同时给出次数与积分两套字段时，优先使用次数
+        if (cMax > 0 && (cMax < 50 || cMax !== pMax)) return { cur: cCur, max: cMax, count: true };
+        if (pMax > 0) return { cur: pCur, max: pMax };
+        return { cur: cCur || pCur, max: cMax || pMax };
+    }
+
+    // 部分计数器返回的是积分（如 90 分 / 30 次），需要换算成搜索次数
+    function normalizePcCounter(pc) {
+        if (!pc || !pc.max) return { cur: 0, max: 0 };
+        let cur = Number(pc.cur) || 0;
+        let max = Number(pc.max) || 0;
+        if (!pc.count && max >= 50) {
+            let per = 5;
+            for (const base of [30, 20, 10]) {
+                if (max % base === 0) {
+                    const val = max / base;
+                    if (val >= 1 && val <= 10) { per = val; break; }
+                }
+            }
+            cur = Math.round(cur / per);
+            max = Math.round(max / per);
+        }
+        return { cur: clamp(cur, 0, max), max };
+    }
+
+    // 解析会员等级名称（如「金牌会员」），避免只显示 Lv.1
+    function extractLevelName(user, text) {
+        const info = (user && (user.levelInfo || user.level)) || {};
+        const cands = [info.activeLevelName, info.levelName, info.name, user && user.levelName, user && user.tierName];
+        for (const c of cands) {
+            const s = String(c || '').trim();
+            if (s && !/^level\s*\d+$/i.test(s) && !/^\d+$/.test(s)) return s;
+        }
+        const cn = String(text || '').match(/(金牌|银牌|铜牌|白金|钻石)\s*会员/);
+        if (cn) return cn[0].replace(/\s+/g, '');
+        const en = String(text || '').match(/"(?:activeLevelName|levelName)"\s*:\s*"([^"]{2,24})"/);
+        if (en && !/^level\s*\d+$/i.test(en[1])) return en[1];
+        return '';
     }
 
     // 与活动无关的任务（签到 / 阅读）不计入活动进度
@@ -1214,15 +1267,14 @@
                 const user = dash.user || {};
                 const rawLevel = user.levelInfo && user.levelInfo.activeLevel ? user.levelInfo.activeLevel : user.level;
                 if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+                const levelName = dash.levelName || extractLevelName(user, '');
+                if (levelName) state.levelName = levelName;
 
                 const counters = (user && user.counters) || {};
                 const dapiPc = extractCounter(dapi && dapi.counters, 'pcSearch');
                 const legacyPc = extractCounter(counters, 'pcSearch');
                 let pc = dapiPc.max ? dapiPc : (legacyPc.max ? legacyPc : (dash.pc || { cur: 0, max: 0 }));
-                if (pc.max >= 50) {
-                    // 部分地区计数器按积分而非次数返回（10 次 = 50 分）
-                    pc = { cur: Math.floor(pc.cur / 5), max: Math.floor(pc.max / 5) };
-                }
+                pc = normalizePcCounter(pc);
                 if (pc.max > 0) {
                     state.pcCur = pc.cur;
                     state.pcMax = pc.max;
@@ -1244,7 +1296,7 @@
                     if (!dash.user && !all.length && !dapi) {
                         log('未能读取任务数据，请确认已登录 rewards.bing.com');
                     } else {
-                        log(`数据已更新：Lv.${state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 活动 ${state.promosDone}/${state.promosTotal}`);
+                        log(`数据已更新：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 活动 ${state.promosDone}/${state.promosTotal}`);
                     }
                 }
                 return true;
@@ -1655,7 +1707,6 @@
                 return;
             }
 
-            const preset = currentPreset();
             const token = await getVerificationToken();
             if (!token) log('未获取到防伪 Token，活动上报可能被拒绝');
 
@@ -1677,7 +1728,7 @@
                 }
 
                 if (i < tasks.length - 1) {
-                    await waitTick(randomRange(preset.taskMin, preset.taskMax), '活动间隔');
+                    await waitTick(nextTaskDelay(), '活动间隔');
                 }
             }
 
@@ -1818,7 +1869,7 @@
                 state.readCur = i + 1;
                 render();
                 log(`阅读 ${i + 1}/${max}`);
-                if (i < max - 1) await waitTick(randomRange(2000, 3500), '阅读间隔');
+                if (i < max - 1) await waitTick(nextTaskDelay(), '阅读间隔');
             }
             log('阅读任务完成');
         } catch (e) {
@@ -1851,11 +1902,11 @@
                     </div>
                 </div>
                 <div class="mr-set-group">
-                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">推荐兼顾速度与稳定</span></div>
+                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">搜索 / 阅读 / 活动通用</span></div>
                     <div class="mr-presets" data-group="preset">
-                        <button data-val="fast"><b>快速</b><small>12–22 秒/次</small></button>
-                        <button data-val="recommended"><b>推荐</b><small>22–45 秒/次</small></button>
-                        <button data-val="safe"><b>保守</b><small>45–80 秒/次</small></button>
+                        <button data-val="fast"><b>快速</b><small>搜索 12–22s · 任务 1.2–2.5s</small></button>
+                        <button data-val="recommended"><b>推荐</b><small>搜索 22–45s · 任务 2–4s</small></button>
+                        <button data-val="safe"><b>保守</b><small>搜索 45–80s · 任务 3.5–7s</small></button>
                     </div>
                 </div>
                 <div class="mr-set-group">
@@ -1966,8 +2017,8 @@
             await waitWhilePaused();
             await runSign();
             await runRead();
-            await runPromo();
             await runSearch();
+            await runPromo();
         } finally {
             state.allRunning = false;
             updateAllButton();
@@ -1980,7 +2031,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.1');
+        log('脚本就绪 v1.1.2');
 
         await updateData({ quiet: true });
 
