@@ -4,7 +4,7 @@
 
 **微软 Rewards 助手 - 自动完成搜索、活动、签到、阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
 
-[![Version](https://img.shields.io/badge/version-1.1.4-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.1.5-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-v4.0+-orange.svg)](https://www.tampermonkey.net/)
 
@@ -19,7 +19,7 @@
 新版界面采用紧凑卡片式悬浮窗：
 
 - **收起状态**：经典白底礼盒图标，默认停靠左下角（可改为右下角）
-- **展开状态**：顶部显示会员等级（如「金牌会员」）、连续打卡天数与积分；等级以 Rewards 看板为准，抓不到名称时显示奖牌图标
+- **展开状态**：顶部显示会员等级（如「金牌会员」）、连续打卡天数与积分；等级优先读取 Rewards 页面实际展示，鼠标悬停显示等级名称，抓不到名称时显示奖牌图标
 - **中部进度**：按按钮顺序排列 —— 阅读 / PC 搜索 / 活动 / Edge 时长
 - **运行状态**：日志默认展开，逐条显示当前处理到哪一步；倒计时收在状态栏
 - **运行日志**：默认展开，点击标题可收起
@@ -118,6 +118,8 @@
    - **图标位置**：左下角（默认） / 右下角
    - **任务间隔**：快速（搜索 12–22 秒、任务 1.2–2.5 秒）、推荐（22–45 秒、2–4 秒）、保守（45–80 秒、3.5–7 秒），搜索、阅读、活动通用且每次随机
    - **自动分段暂停**：按当前预设的节奏休息，降低风控风险
+   - **微软授权**：显示当前授权状态（已授权 / 未授权），可一键重新授权
+   - **Cookie 读取状态**：检测 `GM_cookie` 是否可用（不可用时提示开启篡改猴高级模式）
    - 保存后立即生效
 
 4. **收起面板**
@@ -145,7 +147,9 @@
 
 登录后复制跳转页面的完整 URL，粘贴到脚本面板的授权输入框即可。
 
-> **提示**: 授权码会自动保存，下次使用无需重复授权（除非 Token 过期）
+> **提示**: 授权码会自动保存，下次使用无需重复授权（除非 Token 过期）。设置弹窗中可查看授权状态，并点击「重新授权」清除旧授权后重新获取。
+
+> **Cookie 读取（可选）**：脚本需要读取 `rewards.bing.com` 的登录 Cookie 来同步等级、连续打卡与任务进度。若设置中显示「Cookie 读取：不可用」，请打开篡改猴管理面板 → **设置** → 将**配置模式**切换为**高级**，并确认扩展拥有 `rewards.bing.com` 的站点访问权限。普通模式下脚本仍会由 `GM_xmlhttpRequest` 自动携带浏览器 Cookie。
 
 ---
 
@@ -198,6 +202,12 @@ const PRESETS = {
 - Violentmonkey 同理，在扩展详情里把站点访问权限放开即可
 - 保存后刷新 rewards.bing.com，图标就会正常显示；即使不给该站点权限，也可以在 bing.com 页面打开面板，数据仍可通过脚本后台请求获取
 
+### Q: 设置里显示「Cookie 读取：不可用」？
+**A**: 
+- `GM_cookie` 需要篡改猴开启**高级配置模式**：篡改猴管理面板 → 设置 → 配置模式 → 选择「高级」
+- 同时确认扩展拥有 `rewards.bing.com` 的站点访问权限（见上一条）
+- 若仍不可用，脚本会改用 `GM_xmlhttpRequest` 自动携带的浏览器 Cookie，不影响搜索和活动任务；等级/连续天数可优先从当前页面读取
+
 ### Q: 签到/阅读任务失败？
 **A**: 
 1. 确认已正确获取并保存授权码
@@ -224,7 +234,7 @@ const PRESETS = {
 - **网络请求**: `GM_xmlhttpRequest`
 - **存储**: `GM_setValue` / `GM_getValue`
 - **通知**: `GM_notification`
-- **Cookie**: `GM_cookie`
+- **Cookie**: `GM_cookie`（读取登录态，需在篡改猴中开启「高级」配置模式）
 
 ---
 

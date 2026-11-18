@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.4
+// @version      1.1.5
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -157,7 +157,8 @@
         accessToken: null,
         accessTokenExpiresAt: 0,
         updatingPromise: null,
-        authShown: false
+        authShown: false,
+        cookieWarned: false
     };
 
     // ========== 进度保存/恢复 ==========
@@ -226,11 +227,6 @@
         });
     }
 
-    async function getCookieString(url) {
-        const cookies = await gmCookieList({ url });
-        return cookies.filter(c => c && c.name).map(c => `${c.name}=${c.value}`).join('; ');
-    }
-
     async function request(options) {
         const retries = options.retries === undefined ? 2 : options.retries;
         const retryDelay = options.retryDelay || 1200;
@@ -240,9 +236,8 @@
         delete opts.useCookies;
 
         if (options.useCookies) {
+            // 交给 Tampermonkey 自动附带完整 Cookie（含 HttpOnly），不要手动覆盖 Cookie 头
             opts.anonymous = false;
-            const cookie = await getCookieString(options.url);
-            if (cookie) opts.headers = { ...(opts.headers || {}), Cookie: cookie };
         }
 
         let attempt = 0;
@@ -548,6 +543,12 @@
         .mr-set-ghost:hover { background: #eaedf2; }
         .mr-set-primary { background: linear-gradient(135deg, #0f6cbd, #2b88d8); color: #fff; border: 0; font-weight: 600; }
         .mr-set-primary:hover { background: linear-gradient(135deg, #0d5da3, #2479c2); }
+        .mr-set-auth { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .mr-set-auth button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
+        #mr-auth-status { font-size: 11px; color: #98a2b3; }
+        #mr-auth-status.ok { color: #107c10; }
+        .mr-set-note { font-size: 10px; line-height: 1.5; color: #98a2b3; margin-top: 6px; }
+        .mr-set-note.warn { color: #c4320a; }
 
         @media (prefers-color-scheme: dark) {
             #mr-panel {
@@ -717,7 +718,7 @@
                 <div><span id="mr-points">0</span><span id="mr-points-unit">积分</span></div>
                 <div id="mr-badges">
                     <span id="mr-streak" class="mr-hidden">🔥 连续 0 天</span>
-                    <span id="mr-level">Lv.1</span>
+                    <span id="mr-level" title="会员等级">🏅</span>
                 </div>
             </div>
 
@@ -929,7 +930,7 @@
         const name = state.levelName;
         // 抓不到等级名称时，用奖牌图标兜底
         nodes.level.textContent = name || (state.level >= 3 ? '🥇' : state.level === 2 ? '🥈' : '🏅');
-        nodes.level.title = name ? `${name}（Lv.${state.level}）` : `Lv.${state.level}`;
+        nodes.level.title = name || '会员等级';
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
         if (state.streak > 0) {
             nodes.streak.textContent = `🔥 连续 ${state.streak} 天`;
@@ -974,6 +975,8 @@
             state.accessToken = null;
             state.accessTokenExpiresAt = 0;
             nodes.boxAuth.classList.add('mr-hidden');
+            refreshAuthStatus();
+            cookieChecked = false;
             log('授权码已保存');
         } else {
             log('授权码格式不正确，请复制完整跳转 URL');
@@ -1163,6 +1166,10 @@
                     useCookies: true
                 });
                 if (typeof html === 'string' && html) {
+                    if (!state.cookieWarned && /login\.live\.com|oauth20_|account\.live\.com/i.test(html)) {
+                        state.cookieWarned = true;
+                        log('未读取到 Rewards 登录态：请在篡改猴设置中切换为「高级」模式后重试');
+                    }
                     for (const raw of parseFlightPromos(html)) {
                         const promo = normalizePromo(raw);
                         if (promo) out.promos.push(promo);
@@ -1344,35 +1351,57 @@
         return normalizeLevelName(m[1]);
     }
 
-    // 解析会员等级名称（以 rewards 页面为准；抓不到时返回空，由界面显示图标）
-    function extractLevelName(user, text, level) {
-        const info = (user && (user.levelInfo || {})) || {};
+    // 个人资料卡上的当前等级：如「金牌会员 了解详细信息」
+    function extractProfileLevel(text) {
         const s = String(text || '');
-        const seg = levelSegment(s);
+        const idx = s.indexOf('了解详细信息');
+        if (idx > 0) {
+            const before = s.slice(Math.max(0, idx - 400), idx);
+            const all = [...before.matchAll(/(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g)];
+            if (all.length) return normalizeLevelName(all[all.length - 1][1] + '会员');
+        }
+        const m = s.match(/(?:当前等级|会员等级|我的等级)[\s\S]{0,40}?((?:普通|银牌|金牌|铜牌|白金|钻石)\s*会员)/);
+        return m ? normalizeLevelName(m[1]) : '';
+    }
+
+    // 解析会员等级名称（以 rewards 页面实际展示为准；抓不到时返回空，由界面显示图标）
+    function extractLevelName(user, text, level) {
+        const s = String(text || '');
         const lv = level || parseActiveLevel(user, text);
 
-        // 1) levelInfo 内明确标注的名称（activeLevelName / levelType 等）
-        const segName = seg.match(/"(?:activeLevelName|currentLevelName|levelName|levelDisplayName|memberLevelName|tierName|levelType)"\s*:\s*"([^"]{2,30})"/i);
-        if (segName) {
-            const name = normalizeLevelName(segName[1]);
+        // 1) 个人资料卡上的当前等级（最可靠，避免误读等级列表里的其他名称）
+        const profile = extractProfileLevel(s);
+        if (profile) return profile;
+
+        // 2) 当前等级名称字段（activeLevelName / currentLevelName）
+        const current = s.match(/"(?:activeLevelName|currentLevelName)"\s*:\s*"([^"]{2,30})"/i);
+        if (current) {
+            const name = normalizeLevelName(current[1]);
             if (name) return name;
         }
 
-        // 2) 页面徽章的 alt / aria-label / title
+        // 3) 页面徽章的 alt / aria-label / title
         const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|白金|钻石|普通|gold|silver|bronze|platinum|diamond|member)[^"]{0,20}?)"/i);
         if (attr) {
             const name = normalizeLevelName(attr[1]);
             if (name) return name;
         }
 
-        // 3) 徽章图片地址（gold.png / level2.svg 等）
+        // 4) 徽章图片地址（gold.png / level2.svg 等）
         const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|platinum|diamond|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
         if (icon) {
             const name = levelNameFromIcon(icon[1]);
             if (name) return name;
         }
 
-        // 4) 页面等级阶梯：按 activeLevel 精确匹配，如 {"level":2,...,"levelName":"Gold"}
+        // 5) levelInfo 内其他名称（不读取 levelType，避免拿到等级列表里的其他等级）
+        const segName = levelSegment(s).match(/"(?:levelName|levelDisplayName|memberLevelName|tierName)"\s*:\s*"([^"]{2,30})"/i);
+        if (segName) {
+            const name = normalizeLevelName(segName[1]);
+            if (name) return name;
+        }
+
+        // 6) 页面等级阶梯：按 activeLevel 精确匹配，如 {"level":2,...,"levelName":"Gold"}
         if (s && lv) {
             const re1 = /"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)[^{}]{0,200}?"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"/g;
             const re2 = /"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"[^{}]{0,200}?"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)/g;
@@ -1391,21 +1420,44 @@
             }
         }
 
-        // 5) 页面中只出现一种会员名称时，直接采用（如「金牌会员」）
+        // 7) 页面中只出现一种会员名称时，直接采用（如「金牌会员」）
         const tiers = new Set();
         const tierRe = /(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g;
         let tm;
         while ((tm = tierRe.exec(s)) !== null) tiers.add(tm[1]);
         if (tiers.size === 1) return normalizeLevelName([...tiers][0] + '会员');
 
-        // 6) 接口字段兜底
-        const direct = [info.activeLevelName, info.levelName, user && user.levelName, user && user.tierName];
-        for (const c of direct) {
-            const name = normalizeLevelName(c);
-            if (name) return name;
-        }
-
         return '';
+    }
+
+    // 从当前页面 DOM 读取等级（cn.bing.com 右上角 / rewards 页面）
+    function readLevelFromDom() {
+        try {
+            const text = document.body ? document.body.innerText : '';
+            const profile = extractProfileLevel(text);
+            if (profile) return profile;
+            if (!document.querySelectorAll) return '';
+            const els = document.querySelectorAll('[aria-label*="会员"], [title*="会员"], [alt*="会员"], #id_rh, #id_rb');
+            for (const el of els) {
+                const s = `${el.getAttribute('aria-label') || ''} ${el.getAttribute('title') || ''} ${el.getAttribute('alt') || ''} ${el.textContent || ''}`;
+                const name = extractLevelName(null, s, 0);
+                if (name) return name;
+            }
+            return '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    // 从当前页面 DOM 读取连续打卡天数
+    function readStreakFromDom() {
+        try {
+            const text = document.body ? document.body.innerText : '';
+            const m = text.match(/(?:每日连续打卡|连续打卡|连续签到|连胜)[^\d]{0,10}(\d+)\s*天/);
+            return m ? Number(m[1]) : 0;
+        } catch (e) {
+            return 0;
+        }
     }
 
     // 解析连续打卡天数（优先页面字段，其次「连续签到 N 天」文案）
@@ -1458,22 +1510,25 @@
                 state.promosDone = autoPromos.filter(p => p.complete).length;
 
                 const user = dash.user || {};
+                const domLevelName = readLevelFromDom();
+                const domStreak = readStreakFromDom();
                 const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
                 if (dash.activeLevel > 0) state.level = dash.activeLevel;
                 else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
 
-                // 等级名称以页面为准；抓不到时清空，界面回退为图标
-                if (dash.levelName) {
-                    state.levelName = dash.levelName;
-                    const byName = levelFromName(dash.levelName);
+                // 等级名称：当前页面显示 > 看板页面；抓不到时清空，界面回退为图标
+                const levelName = domLevelName || dash.levelName;
+                if (levelName) {
+                    state.levelName = levelName;
+                    const byName = levelFromName(levelName);
                     if (byName) state.level = byName;
                 } else if (dash.user || dash.activeLevel > 0) {
-                    // 页面/接口可读但没有等级名称：清空后由图标兜底
                     state.levelName = '';
                 }
 
-                // 连续天数以看板为准，避免本地记录与看板不一致
+                // 连续天数：看板优先，其次当前页面，最后本地记录兜底
                 if (dash.streak > 0) state.streak = dash.streak;
+                else if (domStreak > 0) state.streak = domStreak;
 
                 const counters = (user && user.counters) || {};
                 const dapiPc = extractCounter(dapi && dapi.counters, 'pcSearch');
@@ -2126,6 +2181,14 @@
                         自动分段暂停，降低风控风险
                     </label>
                 </div>
+                <div class="mr-set-group">
+                    <div class="mr-set-title">微软授权</div>
+                    <div class="mr-set-auth">
+                        <span id="mr-auth-status">授权状态：未授权</span>
+                        <button id="mr-set-reauth" class="mr-set-ghost">重新授权</button>
+                    </div>
+                    <div class="mr-set-note" id="mr-cookie-status">Cookie 读取：检测中…</div>
+                </div>
                 <div class="mr-set-actions">
                     <button id="mr-set-reset" class="mr-set-ghost">恢复默认</button>
                     <button id="mr-set-save" class="mr-set-primary">保存设置</button>
@@ -2136,6 +2199,44 @@
     document.body.appendChild(settingsMask);
 
     let draftSettings = { ...settings };
+
+    const authStatusEl = settingsMask.querySelector('#mr-auth-status');
+    const cookieStatusEl = settingsMask.querySelector('#mr-cookie-status');
+    let cookieChecked = false;
+
+    function refreshAuthStatus() {
+        let text = '授权状态：未授权';
+        let ok = false;
+        if (state.accessToken) {
+            text = '授权状态：已授权（令牌有效）';
+            ok = true;
+        } else if (GM_getValue('refresh_token')) {
+            text = '授权状态：已授权（刷新令牌已保存）';
+            ok = true;
+        } else if (GM_getValue('auth_code')) {
+            text = '授权状态：已保存授权码，未验证';
+        }
+        authStatusEl.textContent = text;
+        authStatusEl.className = ok ? 'ok' : '';
+    }
+
+    async function refreshCookieStatus(force) {
+        if (cookieChecked && !force) return;
+        cookieChecked = true;
+        if (typeof GM_cookie === 'undefined' || !GM_cookie) {
+            cookieStatusEl.textContent = 'Cookie 读取：不可用，请在篡改猴设置中切换为「高级」模式';
+            cookieStatusEl.className = 'mr-set-note warn';
+            return;
+        }
+        const list = await gmCookieList({ url: 'https://rewards.bing.com/' });
+        if (list.length) {
+            cookieStatusEl.textContent = `Cookie 读取：可用（rewards ${list.length} 项）`;
+            cookieStatusEl.className = 'mr-set-note';
+        } else {
+            cookieStatusEl.textContent = 'Cookie 读取：接口可用，但未读取到 rewards Cookie，请确认已登录';
+            cookieStatusEl.className = 'mr-set-note warn';
+        }
+    }
 
     function syncSettingsUI() {
         settingsMask.querySelectorAll('[data-group]').forEach(group => {
@@ -2151,6 +2252,8 @@
     function openSettings() {
         draftSettings = { ...settings };
         syncSettingsUI();
+        refreshAuthStatus();
+        refreshCookieStatus();
         settingsMask.classList.remove('mr-hidden');
     }
 
@@ -2164,6 +2267,20 @@
     };
 
     settingsMask.querySelector('#mr-set-close').onclick = () => settingsMask.classList.add('mr-hidden');
+
+    settingsMask.querySelector('#mr-set-reauth').onclick = () => {
+        GM_setValue('auth_code', '');
+        GM_setValue('refresh_token', '');
+        state.accessToken = null;
+        state.accessTokenExpiresAt = 0;
+        state.authShown = false;
+        refreshAuthStatus();
+        settingsMask.classList.add('mr-hidden');
+        showAuth();
+        if (typeof GM_openInTab === 'function') GM_openInTab(AUTH_URL, { active: true });
+        else window.open(AUTH_URL, '_blank');
+        log('已清除旧授权，请在打开的页面完成授权后粘贴跳转 URL');
+    };
 
     settingsMask.onclick = e => {
         if (e.target === settingsMask) settingsMask.classList.add('mr-hidden');
@@ -2243,7 +2360,7 @@
         loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.4');
+        log('脚本就绪 v1.1.5');
 
         await updateData({ quiet: true });
 
