@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.7
+// @version      1.1.8
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -137,6 +137,8 @@
         points: 0,
         pcCur: 0,
         pcMax: 0,
+        pcServer: 0,
+        pcPending: 0,
         promos: [],
         promosTotal: 0,
         promosDone: 0,
@@ -174,38 +176,6 @@
             if (!raw) return;
             const data = JSON.parse(raw);
             if (data.date === getDateHyphen()) state.searchCount = Number(data.searchCount) || 0;
-        } catch (e) { }
-    }
-
-    // ========== 连续打卡 ==========
-    function loadLocalStreak() {
-        try {
-            const data = JSON.parse(GM_getValue('mr_streak') || '{}');
-            if (!data.days) return;
-            const y = new Date(Date.now() - 86400000);
-            const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-            // 仅在看板数据未取到前作为兜底，展示以看板为准
-            if (state.streak === 0 && (data.date === getDateHyphen() || data.date === yStr)) {
-                state.streak = Number(data.days) || 0;
-            }
-        } catch (e) { }
-    }
-
-    function recordSignStreak() {
-        try {
-            const today = getDateHyphen();
-            const data = JSON.parse(GM_getValue('mr_streak') || '{}');
-            if (data.date === today) {
-                if (state.streak === 0) state.streak = Number(data.days) || 0;
-                render();
-                return;
-            }
-            const y = new Date(Date.now() - 86400000);
-            const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-            const days = (data.date === yStr ? (Number(data.days) || 0) : 0) + 1;
-            GM_setValue('mr_streak', JSON.stringify({ date: today, days }));
-            if (state.streak === 0) state.streak = days;
-            render();
         } catch (e) { }
     }
 
@@ -446,6 +416,7 @@
         .mr-auth-save:hover { background: #835700; }
 
         #mr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 14px 14px; }
+        #mr-actions.mr-three { grid-template-columns: repeat(3, 1fr); }
         .mr-btn {
             display: flex; align-items: center; justify-content: center; gap: 6px;
             height: 34px; border-radius: 10px;
@@ -460,7 +431,7 @@
         .mr-btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
         .mr-btn svg { width: 15px; height: 15px; }
         .mr-btn.mr-primary {
-            grid-column: span 2; height: 40px;
+            grid-column: 1 / -1; height: 40px;
             background: linear-gradient(135deg, #0f6cbd, #2b88d8);
             color: #fff; border: 0;
             font-size: 13px; font-weight: 600;
@@ -801,6 +772,7 @@
         btnSign: $('#btn-sign'),
         btnRead: $('#btn-read'),
         btnAll: $('#btn-all'),
+        actions: $('#mr-actions'),
         boxAuth: $('#mr-auth'),
         btnAuthLink: $('#mr-auth-link'),
         inAuth: $('#mr-auth-in'),
@@ -948,6 +920,10 @@
         const readAvailable = !state.readKnown || state.readCur < state.readMax;
         nodes.metricRead.classList.toggle('mr-hidden', !readAvailable || !state.readMax);
         nodes.btnRead.classList.toggle('mr-hidden', !readAvailable);
+        // 主按钮剩 3 个时排成一行
+        const visibleBtns = [nodes.btnSign, nodes.btnRead, nodes.btnSearch, nodes.btnPromo]
+            .filter(btn => !btn.classList.contains('mr-hidden')).length;
+        nodes.actions.classList.toggle('mr-three', visibleBtns === 3);
         if (state.readMax) setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
         nodes.metricEdge.classList.toggle('mr-hidden', !state.edgeMax);
         if (state.edgeMax) setMetric(nodes.edge, nodes.edgeBar, state.edgeCur, state.edgeMax);
@@ -1551,6 +1527,16 @@
         return isNonWebTask(promo) || NON_AUTO_TASK.test(text);
     }
 
+    // 搜索进度：服务端已计入的次数 + 本次尚未同步的搜索次数
+    function applyPcCounter(cur, max) {
+        const decreased = cur < state.pcServer;
+        const absorbed = Math.max(0, cur - state.pcServer);
+        state.pcPending = decreased ? 0 : Math.max(0, state.pcPending - absorbed);
+        state.pcServer = cur;
+        state.pcCur = clamp(cur + state.pcPending, 0, max);
+        state.pcMax = max;
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1607,8 +1593,7 @@
                 let pc = dapiPc.max ? dapiPc : (legacyPc.max ? legacyPc : (dash.pc || { cur: 0, max: 0 }));
                 pc = normalizePcCounter(pc);
                 if (pc.max > 0) {
-                    state.pcCur = pc.cur;
-                    state.pcMax = pc.max;
+                    applyPcCounter(pc.cur, pc.max);
                 } else if (!state.pcMax) {
                     state.pcMax = state.level > 1 ? 30 : 10;
                 }
@@ -1756,13 +1741,17 @@
                 done++;
                 remain--;
                 state.searchCount++;
+                // 每完成一次搜索就按次数推进进度，无需等接口同步
+                state.pcPending++;
+                state.pcCur = Math.min(state.pcMax, state.pcCur + 1);
+                render();
                 saveProgress();
 
                 if (done % 3 === 0) {
-                    const before = state.pcCur;
+                    const before = state.pcServer;
                     await updateData({ quiet: true });
                     remain = Math.max(0, state.pcMax - state.pcCur);
-                    if (state.pcCur <= before) {
+                    if (state.pcServer <= before) {
                         stagnantChecks++;
                         if (stagnantChecks >= 2) {
                             log('连续搜索未计分，已停止（可能触发风控或额度已满）');
@@ -2120,7 +2109,6 @@
             if (activity && (activity.p || activity.points)) {
                 log(`签到成功，获得 ${activity.p || activity.points} 积分`);
                 state.signDone = true;
-                recordSignStreak();
             } else if (data.response && (data.response.isDuplicate || activity === null)) {
                 state.signDone = true;
                 log('今日已签到');
@@ -2446,10 +2434,9 @@
     (async () => {
         applyPosition();
         loadProgress();
-        loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.7');
+        log('脚本就绪 v1.1.8');
 
         await updateData({ quiet: true });
 
