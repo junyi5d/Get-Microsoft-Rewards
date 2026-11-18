@@ -4,7 +4,7 @@
 
 **微软 Rewards 助手 - 自动完成搜索、活动、签到、阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
 
-[![Version](https://img.shields.io/badge/version-1.1.3-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.1.4-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-v4.0+-orange.svg)](https://www.tampermonkey.net/)
 
@@ -19,7 +19,7 @@
 新版界面采用紧凑卡片式悬浮窗：
 
 - **收起状态**：经典白底礼盒图标，默认停靠左下角（可改为右下角）
-- **展开状态**：顶部显示会员等级（如「金牌会员」）、连续打卡天数与积分
+- **展开状态**：顶部显示会员等级（如「金牌会员」）、连续打卡天数与积分；等级以 Rewards 看板为准，抓不到名称时显示奖牌图标
 - **中部进度**：按按钮顺序排列 —— 阅读 / PC 搜索 / 活动 / Edge 时长
 - **运行状态**：日志默认展开，逐条显示当前处理到哪一步；倒计时收在状态栏
 - **运行日志**：默认展开，点击标题可收起
@@ -67,7 +67,7 @@
 | PC 搜索 | 使用真实登录会话在 cn.bing.com 搜索并上报计分 |
 | 每日活动 / 更多活动 | DAPI → Server Action → 旧接口 → 访问目标页 |
 | Edge 30 分钟 | 仅展示进度（由 Edge 客户端计时，脚本不代刷） |
-| 连续打卡 | 读取页面天数并本地记录，仅展示 |
+| 连续打卡 | 以看板显示的天数为准，本地记录仅作兜底 |
 
 > 问卷 / 测验类活动需要人工选择答案，脚本只能尝试自动上报；Edge 时长及仅限 App 的任务无法代做。
 

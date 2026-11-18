@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.3
+// @version      1.1.4
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -181,8 +181,9 @@
             if (!data.days) return;
             const y = new Date(Date.now() - 86400000);
             const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
-            if (data.date === getDateHyphen() || data.date === yStr) {
-                state.streak = Math.max(state.streak, Number(data.days) || 0);
+            // 仅在看板数据未取到前作为兜底，展示以看板为准
+            if (state.streak === 0 && (data.date === getDateHyphen() || data.date === yStr)) {
+                state.streak = Number(data.days) || 0;
             }
         } catch (e) { }
     }
@@ -192,7 +193,7 @@
             const today = getDateHyphen();
             const data = JSON.parse(GM_getValue('mr_streak') || '{}');
             if (data.date === today) {
-                state.streak = Math.max(state.streak, Number(data.days) || 0);
+                if (state.streak === 0) state.streak = Number(data.days) || 0;
                 render();
                 return;
             }
@@ -200,7 +201,7 @@
             const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, '0')}-${String(y.getDate()).padStart(2, '0')}`;
             const days = (data.date === yStr ? (Number(data.days) || 0) : 0) + 1;
             GM_setValue('mr_streak', JSON.stringify({ date: today, days }));
-            state.streak = Math.max(state.streak, days);
+            if (state.streak === 0) state.streak = days;
             render();
         } catch (e) { }
     }
@@ -329,7 +330,7 @@
             -webkit-font-smoothing: antialiased;
         }
         #mr-panel * { box-sizing: border-box; }
-        #mr-panel button { font: inherit; cursor: pointer; border: 0; background: none; color: inherit; padding: 0; }
+        #mr-panel button { font: inherit; cursor: pointer; }
         #mr-panel svg { width: 16px; height: 16px; display: block; }
         #mr-panel .mr-hidden { display: none !important; }
 
@@ -613,7 +614,7 @@
         }
         #mr-title { font-size: 13px; font-weight: 600; color: #333; }
         #mr-sub { color: #999; }
-        .mr-icon-btn { color: #777; background: none; font-size: 14px; }
+        .mr-icon-btn { color: #777; background: none; border: 0; font-size: 14px; }
         .mr-icon-btn:hover { background: #eef0f2; color: #333; }
         #mr-set-head { background: #f8f9fa; color: #333; border-bottom: 1px solid #eee; }
         #mr-set-close { color: #999; font-size: 18px; }
@@ -640,8 +641,8 @@
         .mr-auth-link { background: #fff; color: #555; border: 1px solid #ddd; border-radius: 4px; }
         .mr-auth-save { background: #0078d4; color: #fff; border: 0; border-radius: 4px; }
 
-        .mr-btn { background: #fff; border: 1px solid #d0d0d0; border-radius: 4px; }
-        .mr-btn:hover { background: #f5f5f5; border-color: #bbb; }
+        .mr-btn { background: #f5f6f8; border: 1px solid #d0d0d0; border-radius: 4px; }
+        .mr-btn:hover { background: #eceff3; border-color: #bbb; }
         .mr-btn.mr-primary { background: #0078d4; box-shadow: none; border: 0; border-radius: 4px; }
         .mr-btn.mr-primary:hover { background: #006abc; }
 
@@ -925,8 +926,10 @@
     }
 
     function render() {
-        nodes.level.textContent = state.levelName || `Lv.${state.level}`;
-        nodes.level.title = state.levelName ? `${state.levelName}（Lv.${state.level}）` : `Lv.${state.level}`;
+        const name = state.levelName;
+        // 抓不到等级名称时，用奖牌图标兜底
+        nodes.level.textContent = name || (state.level >= 3 ? '🥇' : state.level === 2 ? '🥈' : '🏅');
+        nodes.level.title = name ? `${name}（Lv.${state.level}）` : `Lv.${state.level}`;
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
         if (state.streak > 0) {
             nodes.streak.textContent = `🔥 连续 ${state.streak} 天`;
@@ -1096,15 +1099,31 @@
         return merged;
     }
 
-    function parseFlightPromos(html) {
-        const items = [];
+    // 解码页面（Next.js Flight 流）文本：还原 \uXXXX 中文与转义引号
+    function decodePageText(html) {
+        const raw = String(html || '');
         const chunks = [];
         const pushRe = /self\.__next_f\.push\(\[\d+,\s*"((?:[^"\\]|\\.)*)"\]\)/gs;
         let m;
-        while ((m = pushRe.exec(html)) !== null) {
+        while ((m = pushRe.exec(raw)) !== null) {
             try { chunks.push(JSON.parse(`"${m[1]}"`)); } catch (e) { }
         }
-        const text = chunks.length ? chunks.join('') : html.replace(/\\"/g, '"');
+        let text;
+        if (chunks.length) {
+            // Flight 数据 + 页面实际标签（徽章图片 / alt / title 等）
+            const rest = raw.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+            text = chunks.join('') + '\n' + rest;
+        } else {
+            text = raw;
+        }
+        text = text.replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
+        return text.replace(/\\"/g, '"');
+    }
+
+    function parseFlightPromos(html) {
+        const items = [];
+        const text = decodePageText(html);
+        let m;
         const objRe = /\{[^{}]*?"(?:offerId|offerid)"\s*:\s*"([^"]+)"[^{}]*?\}/g;
         while ((m = objRe.exec(text)) !== null) {
             try {
@@ -1148,7 +1167,7 @@
                         const promo = normalizePromo(raw);
                         if (promo) out.promos.push(promo);
                     }
-                    const plain = html.replace(/\\"/g, '"');
+                    const plain = decodePageText(html);
                     const pointsMatch = plain.match(/"(?:availablePoints|balance)"\s*:\s*(\d+)/);
                     if (pointsMatch) state.points = Number(pointsMatch[1]);
 
@@ -1270,59 +1289,133 @@
         return { cur: clamp(cur, 0, max), max };
     }
 
-    // 解析当前会员等级数字（优先接口字段，其次页面 JSON）
-    function parseActiveLevel(user, text) {
-        const info = (user && (user.levelInfo || {})) || {};
-        const raw = info.activeLevel === undefined ? (user && user.level) : info.activeLevel;
-        const n = parseInt(String(raw === undefined ? '' : raw).replace(/\D/g, ''), 10);
-        if (n > 0) return n;
-        const m = String(text || '').match(/"(?:activeLevel|levelNumber|currentLevel)"\s*:\s*(\d+)/i);
-        return m ? Number(m[1]) : 0;
+    // 页面中与等级相关的结构化片段（levelInfo 优先，避免命中任务里的无关字段）
+    function levelSegment(text) {
+        const s = String(text || '');
+        const info = s.match(/"levelInfo"\s*:\s*\{[^{}]{0,600}\}/i);
+        return info ? info[0] : s;
     }
 
-    // 解析会员等级名称（以 rewards 页面为准，避免接口给出过期的「银牌会员」）
+    // 解析当前会员等级数字（页面 activeLevel 优先，接口兜底）
+    function parseActiveLevel(user, text) {
+        const m = levelSegment(text).match(/"(?:activeLevel|currentLevel|levelNumber)"\s*:\s*(\d+)/i);
+        if (m) return Number(m[1]);
+        const info = (user && (user.levelInfo || {})) || {};
+        const raw = info.activeLevel === undefined ? (user && user.level) : info.activeLevel;
+        return parseInt(String(raw === undefined ? '' : raw).replace(/\D/g, ''), 10) || 0;
+    }
+
+    // 等级名称 → 数字（仅用于图标兜底）
+    function levelFromName(name) {
+        if (/金牌|gold/i.test(name)) return 3;
+        if (/银牌|silver/i.test(name)) return 2;
+        if (/铜牌|bronze|copper/i.test(name)) return 1;
+        if (/普通|member/i.test(name)) return 1;
+        return 0;
+    }
+
+    // 统一等级名称写法（兼容 Gold / Silver / Member 等英文）
+    function normalizeLevelName(raw) {
+        const s = String(raw || '').trim();
+        if (!s) return '';
+        if (/gold|金牌/i.test(s)) return '金牌会员';
+        if (/silver|银牌/i.test(s)) return '银牌会员';
+        if (/bronze|copper|铜牌/i.test(s)) return '铜牌会员';
+        if (/platinum|白金/i.test(s)) return '白金会员';
+        if (/diamond|钻石/i.test(s)) return '钻石会员';
+        if (/member|普通会员/i.test(s)) return '普通会员';
+        if (/会员/.test(s)) return s;
+        if (/^level\s*\d+$/i.test(s) || /^\d+$/.test(s)) return '';
+        return '';
+    }
+
+    // 从徽章图片地址推断等级（如 gold.png / silver-member.svg / level3.png）
+    function levelNameFromIcon(src) {
+        const s = String(src || '');
+        const m = s.match(/(gold|silver|bronze|platinum|diamond|level[\s_-]*([0-9]))/i);
+        if (!m) return '';
+        if (m[2]) {
+            const n = Number(m[2]);
+            if (n >= 3) return '金牌会员';
+            if (n === 2) return '银牌会员';
+            if (n === 1) return '普通会员';
+            return '';
+        }
+        return normalizeLevelName(m[1]);
+    }
+
+    // 解析会员等级名称（以 rewards 页面为准；抓不到时返回空，由界面显示图标）
     function extractLevelName(user, text, level) {
         const info = (user && (user.levelInfo || {})) || {};
-        const lv = level || parseActiveLevel(user, text);
         const s = String(text || '');
+        const seg = levelSegment(s);
+        const lv = level || parseActiveLevel(user, text);
 
-        // 1) 页面等级阶梯：按 activeLevel 精确匹配，如 {"level":2,...,"levelName":"金牌会员"}
+        // 1) levelInfo 内明确标注的名称（activeLevelName / levelType 等）
+        const segName = seg.match(/"(?:activeLevelName|currentLevelName|levelName|levelDisplayName|memberLevelName|tierName|levelType)"\s*:\s*"([^"]{2,30})"/i);
+        if (segName) {
+            const name = normalizeLevelName(segName[1]);
+            if (name) return name;
+        }
+
+        // 2) 页面徽章的 alt / aria-label / title
+        const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|白金|钻石|普通|gold|silver|bronze|platinum|diamond|member)[^"]{0,20}?)"/i);
+        if (attr) {
+            const name = normalizeLevelName(attr[1]);
+            if (name) return name;
+        }
+
+        // 3) 徽章图片地址（gold.png / level2.svg 等）
+        const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|platinum|diamond|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
+        if (icon) {
+            const name = levelNameFromIcon(icon[1]);
+            if (name) return name;
+        }
+
+        // 4) 页面等级阶梯：按 activeLevel 精确匹配，如 {"level":2,...,"levelName":"Gold"}
         if (s && lv) {
             const re1 = /"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)[^{}]{0,200}?"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"/g;
             const re2 = /"(?:levelName|activeLevelName|name|displayName|title)"\s*:\s*"([^"]{2,20})"[^{}]{0,200}?"(?:level|activeLevel|levelNumber)"\s*:\s*(\d+)/g;
             let m;
             while ((m = re1.exec(s)) !== null) {
-                if (Number(m[1]) === lv) return m[2].trim();
+                if (Number(m[1]) === lv) {
+                    const name = normalizeLevelName(m[2]);
+                    if (name) return name;
+                }
             }
             while ((m = re2.exec(s)) !== null) {
-                if (Number(m[2]) === lv) return m[1].trim();
+                if (Number(m[2]) === lv) {
+                    const name = normalizeLevelName(m[1]);
+                    if (name) return name;
+                }
             }
         }
 
-        // 2) 页面上「当前等级：金牌会员」这类上下文
-        const ctx = s.match(/(?:当前(?:等级|会员)|会员等级|当前会员|你的等级)[\s\S]{0,80}?((?:金牌|银牌|铜牌|白金|钻石)\s*会员)/);
-        if (ctx) return ctx[1].replace(/\s+/g, '');
+        // 5) 页面中只出现一种会员名称时，直接采用（如「金牌会员」）
+        const tiers = new Set();
+        const tierRe = /(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g;
+        let tm;
+        while ((tm = tierRe.exec(s)) !== null) tiers.add(tm[1]);
+        if (tiers.size === 1) return normalizeLevelName([...tiers][0] + '会员');
 
-        // 3) 页面 JSON 中的等级名称
-        const nm = s.match(/"(?:activeLevelName|levelName)"\s*:\s*"([^"]{2,24})"/);
-        if (nm && !/^level\s*\d+$/i.test(nm[1])) return nm[1].trim();
-
-        // 4) 接口字段兜底
+        // 6) 接口字段兜底
         const direct = [info.activeLevelName, info.levelName, user && user.levelName, user && user.tierName];
         for (const c of direct) {
-            const name = String(c || '').trim();
-            if (name && !/^level\s*\d+$/i.test(name) && !/^\d+$/.test(name)) return name;
+            const name = normalizeLevelName(c);
+            if (name) return name;
         }
 
         return '';
     }
 
-    // 解析连续打卡天数（页面字段或文案）
+    // 解析连续打卡天数（优先页面字段，其次「连续签到 N 天」文案）
     function parseStreak(text) {
         const s = String(text || '');
-        const j = s.match(/"(?:streak|checkInStreak|consecutiveDays|dayStreak)"\s*:\s*(\d+)/i);
-        if (j) return Number(j[1]);
-        const t = s.match(/(?:已)?连续(?:打卡|签到)?[^\d]{0,8}(\d+)\s*天/);
+        const j = s.match(/"(?:streak|streakDays|currentStreak|currentStreakDays|dailyStreak|checkInStreak|checkInStreakDays|dailyCheckInStreak|consecutiveDays|consecutiveCheckInDays|dayStreak|streakCount|checkInDays)"\s*:\s*(\d+)/i);
+        if (j && Number(j[1]) > 0) return Number(j[1]);
+        const obj = s.match(/"(?:streak|checkInStreak|dailyCheckIn)"\s*:\s*\{[^{}]{0,160}?"(?:current|count|days|currentStreak|dayCount)"\s*:\s*(\d+)/i);
+        if (obj && Number(obj[1]) > 0) return Number(obj[1]);
+        const t = s.match(/(?:连续|连胜|已连续)(?:签到|打卡)?\s*(\d+)\s*天/) || s.match(/(\d+)\s*天(?:连续|连胜)(?:签到|打卡)?/);
         return t ? Number(t[1]) : 0;
     }
 
@@ -1365,11 +1458,22 @@
                 state.promosDone = autoPromos.filter(p => p.complete).length;
 
                 const user = dash.user || {};
-                const rawLevel = user.levelInfo && user.levelInfo.activeLevel ? user.levelInfo.activeLevel : user.level;
-                if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
-                const levelName = dash.levelName || extractLevelName(user, '', state.level);
-                if (levelName) state.levelName = levelName;
-                if (dash.streak > 0) state.streak = Math.max(state.streak, dash.streak);
+                const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
+                if (dash.activeLevel > 0) state.level = dash.activeLevel;
+                else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+
+                // 等级名称以页面为准；抓不到时清空，界面回退为图标
+                if (dash.levelName) {
+                    state.levelName = dash.levelName;
+                    const byName = levelFromName(dash.levelName);
+                    if (byName) state.level = byName;
+                } else if (dash.user || dash.activeLevel > 0) {
+                    // 页面/接口可读但没有等级名称：清空后由图标兜底
+                    state.levelName = '';
+                }
+
+                // 连续天数以看板为准，避免本地记录与看板不一致
+                if (dash.streak > 0) state.streak = dash.streak;
 
                 const counters = (user && user.counters) || {};
                 const dapiPc = extractCounter(dapi && dapi.counters, 'pcSearch');
@@ -2139,7 +2243,7 @@
         loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.3');
+        log('脚本就绪 v1.1.4');
 
         await updateData({ quiet: true });
 
