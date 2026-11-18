@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.0
+// @version      1.2.1
 // @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索连续打卡与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -688,15 +688,15 @@
                 </div>
             </div>
 
-            <div class="mr-metric">
+            <div class="mr-metric" id="mr-checkin-wrap">
                 <div class="mr-metric-top"><span>打卡任务</span><span id="mr-checkin">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill orange" id="mr-checkin-bar"></i></div>
             </div>
-            <div class="mr-metric">
+            <div class="mr-metric" id="mr-search-wrap">
                 <div class="mr-metric-top"><span>必应搜索连续打卡</span><span id="mr-search">0/1</span></div>
                 <div class="mr-track"><i class="mr-fill" id="mr-search-bar"></i></div>
             </div>
-            <div class="mr-metric">
+            <div class="mr-metric" id="mr-promo-wrap">
                 <div class="mr-metric-top"><span>日常任务</span><span id="mr-promo">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill green" id="mr-promo-bar"></i></div>
             </div>
@@ -742,10 +742,13 @@
         points: $('#mr-points'),
         checkin: $('#mr-checkin'),
         checkinBar: $('#mr-checkin-bar'),
+        checkinWrap: $('#mr-checkin-wrap'),
         search: $('#mr-search'),
         searchBar: $('#mr-search-bar'),
+        searchWrap: $('#mr-search-wrap'),
         promo: $('#mr-promo'),
         promoBar: $('#mr-promo-bar'),
+        promoWrap: $('#mr-promo-wrap'),
         status: $('#mr-status'),
         statusText: $('#mr-status-text'),
         statusTime: $('#mr-status-time'),
@@ -893,6 +896,9 @@
         nodes.level.textContent = name ? `${icon} ${name}` : icon;
         nodes.level.title = name || '会员等级';
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
+        nodes.checkinWrap.classList.toggle('mr-hidden', state.checkinMax === 0);
+        nodes.searchWrap.classList.toggle('mr-hidden', state.searchMax === 0);
+        nodes.promoWrap.classList.toggle('mr-hidden', state.promosTotal === 0);
         setMetric(nodes.checkin, nodes.checkinBar, state.checkinCur, state.checkinMax);
         setMetric(nodes.search, nodes.searchBar, state.searchCur, state.searchMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
@@ -1222,7 +1228,7 @@
         if (!token) return null;
         try {
             const res = await withTokenRetry(t => request({
-                url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=613',
+                url: 'https://prod.rewardsplatform.microsoft.com/dapi/me?channel=SAAndroid&options=8191',
                 headers: {
                     'Authorization': `Bearer ${t}`,
                     'Content-Type': 'application/json; charset=UTF-8',
@@ -1424,12 +1430,31 @@
         return isNonWebTask(promo) || NON_AUTO_TASK.test(text);
     }
 
+    // 打卡相关的 offerId / 类型：DAPI promotions 里的连续打卡系列
+    // 注意：DailySet 单独出现往往是日常任务（Quiz 等），必须搭配 Gamification/Streak/CheckIn 才是打卡
+    const CHECKIN_OFFER = /(Gamification_DailySet|Gamification_Streak|DailyCheckIn|Daily_Checkin|SearchStreak|SearchDaily_Streak|CheckInDaily|DailyLogin|DailyReward|SetDefaultSearch|Gamification_CheckIn|Gamification_DailyCheckIn|Streak_Daily|Daily_Streak)/i;
+    const CHECKIN_TITLE = /(连续打卡|连续登录|每日登录|每日签到|每日打卡|每日连续|搜索连续|Edge.*连续|必应.*连续|连签|连胜)/i;
+    function isCheckinPromo(p) {
+        if (!p) return false;
+        if (CHECKIN_OFFER.test(p.offerId || '')) return !isNonWebTask(p);
+        if (CHECKIN_TITLE.test(p.title || '')) return !isNonWebTask(p);
+        // DAPI 里 promotionType/streak 类任务带进度（如 1/3 天），也视为打卡
+        if (/streak|checkin|daily/i.test(p.type || '') && (p.max > 0 || p.points > 0)) return !isNonWebTask(p);
+        return false;
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
             try {
                 const [dash, dapi] = await Promise.all([fetchDashboard(), fetchDapiOverview()]);
                 const all = [...dash.promos, ...((dapi && dapi.promos) || [])];
+
+                // 调试：显示抓到的全部卡片（便于定位名称变更）
+                if (!opts.quiet) {
+                    const summary = all.map(p => `[${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(p.title || '', 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`).slice(0, 40);
+                    if (summary.length) console.log('[MR promos]', summary.join('\n  '));
+                }
                 const map = new Map();
                 for (const promo of all) {
                     if (!promo || !promo.offerId) continue;
@@ -1439,7 +1464,7 @@
                 const activePromos = allPromos.filter(p => !NON_ACTIVITY.test(p.offerId));
 
                 // 打卡任务：必应搜索连续打卡 / 每日连续打卡 / Edge 浏览连续打卡（跳过 App）
-                const checkinPromos = allPromos.filter(p => /连续打卡/.test(p.title) && !isNonWebTask(p));
+                const checkinPromos = allPromos.filter(isCheckinPromo);
                 state.checkinPromos = checkinPromos;
                 state.checkinMax = checkinPromos.length;
                 state.checkinCur = checkinPromos.filter(p => p.complete).length;
@@ -1854,7 +1879,7 @@
             }
 
             const token = await getVerificationToken();
-            if (!token) log('未获取到防伪 Token，任务上报可能被拒绝');
+            if (!token) console.log('[MR] verificationToken 缺失：旧版 reportActivity 通道会跳过，Server Action / DAPI 不受影响');
 
             log(`待执行任务 ${tasks.length} 个`);
             let ok = 0;
@@ -1967,7 +1992,8 @@
             setStatus('核对打卡结果');
             await sleep(3000);
             await updateData({ quiet: true });
-            log(`打卡状态已刷新：${state.checkinCur}/${state.checkinMax}`);
+            if (state.checkinMax > 0) log(`打卡状态已刷新：${state.checkinCur}/${state.checkinMax}`);
+            else log('每日打卡完成（未检测到连续打卡卡片）');
         } catch (e) {
             log(`打卡流程异常：${e.message}`);
         } finally {
