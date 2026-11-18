@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.5
+// @version      1.1.6
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -142,6 +142,7 @@
         promosDone: 0,
         readCur: 0,
         readMax: 0,
+        readKnown: false,
         edgeCur: 0,
         edgeMax: 0,
         streak: 0,
@@ -157,6 +158,7 @@
         accessToken: null,
         accessTokenExpiresAt: 0,
         updatingPromise: null,
+        signDone: false,
         authShown: false,
         cookieWarned: false
     };
@@ -722,7 +724,7 @@
                 </div>
             </div>
 
-            <div class="mr-metric">
+            <div class="mr-metric" id="mr-metric-read">
                 <div class="mr-metric-top"><span>阅读任务</span><span id="mr-read">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill orange" id="mr-read-bar"></i></div>
             </div>
@@ -734,7 +736,7 @@
                 <div class="mr-metric-top"><span>活动任务</span><span id="mr-promo">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill green" id="mr-promo-bar"></i></div>
             </div>
-            <div class="mr-metric">
+            <div class="mr-metric" id="mr-metric-edge">
                 <div class="mr-metric-top"><span>🌐 Edge 30 分钟</span><span id="mr-edge">—</span></div>
                 <div class="mr-track"><i class="mr-fill purple" id="mr-edge-bar"></i></div>
             </div>
@@ -786,8 +788,10 @@
         promoBar: $('#mr-promo-bar'),
         read: $('#mr-read'),
         readBar: $('#mr-read-bar'),
+        metricRead: $('#mr-metric-read'),
         edge: $('#mr-edge'),
         edgeBar: $('#mr-edge-bar'),
+        metricEdge: $('#mr-metric-edge'),
         status: $('#mr-status'),
         statusText: $('#mr-status-text'),
         statusTime: $('#mr-status-time'),
@@ -940,13 +944,11 @@
         }
         setMetric(nodes.pc, nodes.pcBar, state.pcCur, state.pcMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
-        setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
-        if (state.edgeMax > 0) {
-            setMetric(nodes.edge, nodes.edgeBar, state.edgeCur, state.edgeMax);
-        } else {
-            nodes.edge.textContent = '—';
-            nodes.edgeBar.style.width = '0%';
-        }
+        // 页面上没有的积分任务不占用界面
+        nodes.metricRead.classList.toggle('mr-hidden', state.readKnown && !state.readMax);
+        if (state.readMax) setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
+        nodes.metricEdge.classList.toggle('mr-hidden', !state.edgeMax);
+        if (state.edgeMax) setMetric(nodes.edge, nodes.edgeBar, state.edgeCur, state.edgeMax);
     }
 
     // ========== 授权 ==========
@@ -1072,12 +1074,15 @@
         const offerId = raw.offerId || raw.offerid || a.offerid || raw.name || '';
         if (!offerId || typeof offerId !== 'string') return null;
         const completeRaw = raw.complete === undefined ? (raw.isCompleted === undefined ? (a.complete === undefined ? a.completed : a.complete) : raw.isCompleted) : raw.complete;
+        const unlockRaw = raw.unlockCriteria === undefined ? a.unlockCriteria : raw.unlockCriteria;
+        const hasUnlock = unlockRaw !== undefined && unlockRaw !== null && unlockRaw !== false && unlockRaw !== ''
+            && !/^(none|\$undefined|null)$/i.test(String(unlockRaw));
         return {
             offerId,
             title: String(raw.title || a.title || raw.name || offerId),
             hash: raw.hash || a.hash || '',
             complete: completeRaw === true || String(completeRaw).toLowerCase() === 'true' || String(raw.state || '').toLowerCase() === 'completed',
-            locked: raw.isLocked === true || String(raw.exclusiveLockedFeatureStatus || a.exclusiveLockedFeatureStatus || '').toLowerCase() === 'locked',
+            locked: raw.isLocked === true || raw.isUnlocked === false || hasUnlock || String(raw.exclusiveLockedFeatureStatus || a.exclusiveLockedFeatureStatus || '').toLowerCase() === 'locked',
             priority: Number(raw.priority === undefined ? (a.priority === undefined ? 999 : a.priority) : raw.priority),
             progress: Number(raw.pointProgress === undefined ? (raw.progress === undefined ? (a.progress === undefined ? a.activityprogress : a.progress) : raw.progress) : raw.pointProgress) || 0,
             max: Number(raw.pointProgressMax === undefined ? (raw.max === undefined ? (a.max === undefined ? a.activitymax : a.max) : raw.max) : raw.pointProgressMax) || 0,
@@ -1098,7 +1103,7 @@
             merged[key] = val;
         }
         merged.complete = prev.complete || next.complete;
-        merged.locked = prev.locked && next.locked;
+        merged.locked = prev.locked || next.locked;
         return merged;
     }
 
@@ -1123,6 +1128,34 @@
         return text.replace(/\\"/g, '"');
     }
 
+    // 从页面数据中提取指定 key 后的 JSON 数组（activityCards / dailySetItems 等）
+    function extractJsonArrayAfterKey(text, key) {
+        const s = String(text || '');
+        const idx = s.indexOf(`"${key}":[`);
+        if (idx < 0) return null;
+        const start = s.indexOf('[', idx);
+        if (start < 0) return null;
+        let depth = 0, inStr = false, esc = false;
+        for (let i = start; i < s.length; i++) {
+            const ch = s[i];
+            if (inStr) {
+                if (esc) esc = false;
+                else if (ch === '\\') esc = true;
+                else if (ch === '"') inStr = false;
+            } else if (ch === '"') {
+                inStr = true;
+            } else if (ch === '[') {
+                depth++;
+            } else if (ch === ']') {
+                depth--;
+                if (depth === 0) {
+                    try { return JSON.parse(s.slice(start, i + 1)); } catch (e) { return null; }
+                }
+            }
+        }
+        return null;
+    }
+
     function parseFlightPromos(html) {
         const items = [];
         const text = decodePageText(html);
@@ -1135,8 +1168,21 @@
             } catch (e) { }
         }
 
-        // 兼容旧版 SSR 页面：从 data-offer-id / data-hash 属性提取卡片
         const seen = new Set(items.map(x => x && (x.offerId || x.offerid)).filter(Boolean));
+        // 结构化卡片：可完整读取 isCompleted / isLocked / unlockCriteria 等字段
+        for (const key of ['activityCards', 'dailySetItems', 'morePromotions']) {
+            const arr = extractJsonArrayAfterKey(text, key);
+            if (!Array.isArray(arr)) continue;
+            for (const card of arr) {
+                if (!card || typeof card !== 'object') continue;
+                const id = card.offerId || card.offerid || (card.attributes && card.attributes.offerid) || card.name;
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                items.push(card);
+            }
+        }
+
+        // 兼容旧版 SSR 页面：从 data-offer-id / data-hash 属性提取卡片
         for (const seg of html.split(/data-offer-id="/).slice(1)) {
             const idMatch = seg.match(/^([^"&]+)/);
             if (!idMatch) continue;
@@ -1453,31 +1499,45 @@
     function readStreakFromDom() {
         try {
             const text = document.body ? document.body.innerText : '';
-            const m = text.match(/(?:每日连续打卡|连续打卡|连续签到|连胜)[^\d]{0,10}(\d+)\s*天/);
+            const m = text.match(/(?:每日连续打卡|连续打卡|连续签到|连签|连胜)[^\d]{0,12}(\d+)\s*天/)
+                || text.match(/🔥\s*(\d+)\s*天/);
             return m ? Number(m[1]) : 0;
         } catch (e) {
             return 0;
         }
     }
 
-    // 解析连续打卡天数（优先页面字段，其次「连续签到 N 天」文案）
+    // 解析连续打卡天数（优先页面字段，其次「每日连续打卡 N 天」卡片）
     function parseStreak(text) {
         const s = String(text || '');
-        const j = s.match(/"(?:streak|streakDays|currentStreak|currentStreakDays|dailyStreak|checkInStreak|checkInStreakDays|dailyCheckInStreak|consecutiveDays|consecutiveCheckInDays|dayStreak|streakCount|checkInDays)"\s*:\s*(\d+)/i);
+        const j = s.match(/"(?:streak|streakDays|streakCount|streakDayCount|streakDaysCount|currentStreak|currentStreakDays|dailyStreak|checkInStreak|checkInStreakDays|checkInStreakCount|dailyCheckInStreak|dailyCheckInDays|consecutiveDays|consecutiveCheckInDays|continuousDays|dayStreak|checkInDays|signInStreakDays)"\s*:\s*(\d+)/i);
         if (j && Number(j[1]) > 0) return Number(j[1]);
-        const obj = s.match(/"(?:streak|checkInStreak|dailyCheckIn)"\s*:\s*\{[^{}]{0,160}?"(?:current|count|days|currentStreak|dayCount)"\s*:\s*(\d+)/i);
+        const obj = s.match(/"(?:streak|checkInStreak|dailyCheckIn|checkIn)"\s*:\s*\{[^{}]{0,200}?"(?:current|count|days|currentStreak|dayCount|value)"\s*:\s*(\d+)/i);
         if (obj && Number(obj[1]) > 0) return Number(obj[1]);
+        // 看板卡片：标签与数字之间可能隔着大量 Next.js Flight 数据
+        const card = s.match(/(?:每日连续打卡|连续打卡|连续签到|连签|连胜)[\s\S]{0,1500}?(\d+)\s*天/);
+        if (card && Number(card[1]) > 0) return Number(card[1]);
+        const flame = s.match(/🔥\s*(\d+)\s*天/);
+        if (flame && Number(flame[1]) > 0) return Number(flame[1]);
         const t = s.match(/(?:连续|连胜|已连续)(?:签到|打卡)?\s*(\d+)\s*天/) || s.match(/(\d+)\s*天(?:连续|连胜)(?:签到|打卡)?/);
         return t ? Number(t[1]) : 0;
     }
 
     // 与活动无关的任务（签到 / 阅读）不计入活动进度
-    const NON_ACTIVITY = /readarticle|DailyCheckIn|Install_RewardsApp/i;
+    const NON_ACTIVITY = /readarticle|DailyCheckIn|Gamification_DailySet|Install_RewardsApp/i;
 
     // Edge 每日浏览 30 分钟：由 Edge 客户端累计时长，网页脚本无法代完成
     function isEdgeBrowse(promo) {
         const title = String((promo && promo.title) || '');
         return /edge/i.test(title) && /(浏览|browse)/i.test(title) && /(30|分钟|minute|min\b)/i.test(title);
+    }
+
+    // app / 移动端 / 客户端专属任务：网页脚本无法完成，直接跳过
+    const NON_WEB_TASK = /(mobile|android|ios|iphone|ipad|bing\s*app|rewards\s*app|移动|手机|安卓|应用|安装|下载应用|xbox|game\s*pass|windows\s*搜索|windows search|outlook)/i;
+    function isNonWebTask(promo) {
+        const text = `${(promo && promo.title) || ''} ${(promo && promo.offerId) || ''}`;
+        if (/edge|desktop|pc|电脑|桌面/i.test(text)) return false;
+        return NON_WEB_TASK.test(text);
     }
 
     async function updateData(opts = {}) {
@@ -1491,7 +1551,7 @@
                     if (!promo || !promo.offerId) continue;
                     map.set(promo.offerId, map.has(promo.offerId) ? mergePromo(map.get(promo.offerId), promo) : promo);
                 }
-                const activePromos = [...map.values()].filter(p => !p.hidden && !NON_ACTIVITY.test(p.offerId));
+                const activePromos = [...map.values()].filter(p => !p.hidden && !p.locked && !NON_ACTIVITY.test(p.offerId));
 
                 // Edge 阅读时长任务只展示进度，不参与自动执行
                 const edgePromo = activePromos.find(isEdgeBrowse);
@@ -1504,7 +1564,7 @@
                     }
                 }
 
-                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p));
+                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p) && !isNonWebTask(p));
                 state.promos = autoPromos;
                 state.promosTotal = autoPromos.length;
                 state.promosDone = autoPromos.filter(p => p.complete).length;
@@ -1526,9 +1586,9 @@
                     state.levelName = '';
                 }
 
-                // 连续天数：看板优先，其次当前页面，最后本地记录兜底
-                if (dash.streak > 0) state.streak = dash.streak;
-                else if (domStreak > 0) state.streak = domStreak;
+                // 连续天数：当前 rewards 页面显示优先，其次看板数据，最后本地记录兜底
+                if (domStreak > 0) state.streak = domStreak;
+                else if (dash.streak > 0) state.streak = dash.streak;
 
                 const counters = (user && user.counters) || {};
                 const dapiPc = extractCounter(dapi && dapi.counters, 'pcSearch');
@@ -1546,9 +1606,10 @@
                 else if (typeof user.availablePoints === 'number') state.points = user.availablePoints;
 
                 const readPromo = ((dapi && dapi.promos) || []).find(p => /readarticle/i.test(p.offerId) || p.type === 'msnreadearn');
-                if (readPromo) {
-                    state.readCur = readPromo.progress;
-                    state.readMax = readPromo.max;
+                if (dapi) {
+                    state.readKnown = true;
+                    state.readCur = readPromo ? readPromo.progress : 0;
+                    state.readMax = readPromo ? readPromo.max : 0;
                 }
 
                 render();
@@ -2047,10 +2108,13 @@
             const activity = data.response && data.response.activity;
             if (activity && (activity.p || activity.points)) {
                 log(`签到成功，获得 ${activity.p || activity.points} 积分`);
+                state.signDone = true;
                 recordSignStreak();
             } else if (data.response && (data.response.isDuplicate || activity === null)) {
+                state.signDone = true;
                 log('今日已签到');
             } else {
+                state.signDone = true;
                 log('签到请求已提交');
             }
         } catch (e) {
@@ -2340,13 +2404,27 @@
         }
         state.allRunning = true;
         updateAllButton();
-        log('一键执行开始');
         try {
             await waitWhilePaused();
-            await runSign();
-            await runRead();
-            await runSearch();
-            await runPromo();
+            // 只执行当前可获得积分的栏目，顺序随机，模拟真人操作
+            const tasks = [];
+            if (!state.signDone) tasks.push({ name: '签到', run: runSign });
+            if (state.readMax === 0 || state.readCur < state.readMax) tasks.push({ name: '阅读', run: runRead });
+            if (state.pcMax === 0 || state.pcCur < state.pcMax) tasks.push({ name: '搜索', run: runSearch });
+            if (state.promosTotal === 0 || state.promosDone < state.promosTotal) tasks.push({ name: '活动', run: runPromo });
+            shuffle(tasks);
+            if (!tasks.length) {
+                log('今日可获得的积分任务均已完成');
+                return;
+            }
+            log(`一键执行开始：${tasks.map(t => t.name).join(' → ')}`);
+            for (let i = 0; i < tasks.length; i++) {
+                await waitWhilePaused();
+                if (i > 0) await waitTick(nextTaskDelay(), '切换任务');
+                log(`一键任务 ${i + 1}/${tasks.length}：${tasks[i].name}`);
+                await tasks[i].run();
+            }
+            log('一键执行结束');
         } finally {
             state.allRunning = false;
             updateAllButton();
@@ -2360,7 +2438,7 @@
         loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.5');
+        log('脚本就绪 v1.1.6');
 
         await updateData({ quiet: true });
 
