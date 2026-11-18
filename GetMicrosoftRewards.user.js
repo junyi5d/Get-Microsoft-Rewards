@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.1.6
+// @version      1.1.7
 // @description  微软 Rewards 助手 - 自动完成 PC 搜索、活动、签到、阅读任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -944,8 +944,10 @@
         }
         setMetric(nodes.pc, nodes.pcBar, state.pcCur, state.pcMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
-        // 页面上没有的积分任务不占用界面
-        nodes.metricRead.classList.toggle('mr-hidden', state.readKnown && !state.readMax);
+        // 页面上没有（或已完成）的积分任务不占用界面
+        const readAvailable = !state.readKnown || state.readCur < state.readMax;
+        nodes.metricRead.classList.toggle('mr-hidden', !readAvailable || !state.readMax);
+        nodes.btnRead.classList.toggle('mr-hidden', !readAvailable);
         if (state.readMax) setMetric(nodes.read, nodes.readBar, state.readCur, state.readMax);
         nodes.metricEdge.classList.toggle('mr-hidden', !state.edgeMax);
         if (state.edgeMax) setMetric(nodes.edge, nodes.edgeBar, state.edgeCur, state.edgeMax);
@@ -1060,13 +1062,14 @@
 
     // ========== 数据获取（基于 rewards.bing.com/dashboard） ==========
     /*
-     * 自动化基准（对照 rewards.bing.com/dashboard 与 /earn 的任务分类）：
+     * 自动化基准（对照 rewards.bing.com/earn 的任务分类）：
      * 1. 每日签到 DailyCheckIn        → DAPI type 103
-     * 2. 阅读 readarticle*            → DAPI type 101，分步上报
+     * 2. 阅读 readarticle*            → 仅页面存在未完成阅读任务时显示并上报
      * 3. PC 搜索 pcSearch             → cn.bing.com 真实会话搜索 + ncheader/reportActivity
-     * 4. 每日活动 dailySet/morePromotions → DAPI / Server Action / 旧接口 / 访问目标页
+     * 4. 日常任务（测验/投票）        → DAPI / Server Action / 旧接口 / 访问目标页
      * 5. Edge 30 分钟                 → 由 Edge 客户端计时，仅展示进度
-     * 6. 连续打卡 streak              → 读取页面数据并本地记录，仅展示
+     * 6. 连续打卡 / 升级里程碑        → 随对应行为自动累计，仅展示，不参与一键执行
+     * 7. App / 移动端 / Xbox / 邀请   → 无法由网页脚本完成，直接跳过
      */
     function normalizePromo(raw) {
         if (!raw || typeof raw !== 'object') return null;
@@ -1540,6 +1543,14 @@
         return NON_WEB_TASK.test(text);
     }
 
+    // earn 页面上不可通过一次上报完成的任务：
+    // 连续打卡 / 升级里程碑（连续 N 天、默认搜索引擎）、邀请好友、Xbox 等
+    const NON_AUTO_TASK = /(连续打卡|连续\s*\d+\s*天|每日连续打卡|设为默认搜索引擎|default\s*search\s*engine|邀请|好友|朋友|refer\s*a\s*friend|game\s*pass|xbox)/i;
+    function isNonAutoTask(promo) {
+        const text = `${(promo && promo.title) || ''} ${(promo && promo.offerId) || ''}`;
+        return isNonWebTask(promo) || NON_AUTO_TASK.test(text);
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1564,7 +1575,7 @@
                     }
                 }
 
-                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p) && !isNonWebTask(p));
+                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p) && !isNonAutoTask(p));
                 state.promos = autoPromos;
                 state.promosTotal = autoPromos.length;
                 state.promosDone = autoPromos.filter(p => p.complete).length;
@@ -2409,7 +2420,7 @@
             // 只执行当前可获得积分的栏目，顺序随机，模拟真人操作
             const tasks = [];
             if (!state.signDone) tasks.push({ name: '签到', run: runSign });
-            if (state.readMax === 0 || state.readCur < state.readMax) tasks.push({ name: '阅读', run: runRead });
+            if (state.readMax > 0 && state.readCur < state.readMax) tasks.push({ name: '阅读', run: runRead });
             if (state.pcMax === 0 || state.pcCur < state.pcMax) tasks.push({ name: '搜索', run: runSearch });
             if (state.promosTotal === 0 || state.promosDone < state.promosTotal) tasks.push({ name: '活动', run: runPromo });
             shuffle(tasks);
@@ -2438,7 +2449,7 @@
         loadLocalStreak();
         render();
         updateAllButton();
-        log('脚本就绪 v1.1.6');
+        log('脚本就绪 v1.1.7');
 
         await updateData({ quiet: true });
 
