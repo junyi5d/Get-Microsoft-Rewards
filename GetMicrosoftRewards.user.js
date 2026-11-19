@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.1
+// @version      1.2.2
 // @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索连续打卡与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -132,6 +132,7 @@
 
     // ========== 状态 ==========
     const state = {
+        loaded: false,
         level: 1,
         levelName: '',
         points: 0,
@@ -377,6 +378,24 @@
         }
         .mr-fill.green { background: linear-gradient(90deg, #16a34a, #4ade80); }
         .mr-fill.orange { background: linear-gradient(90deg, #ea8a17, #f7bf4f); }
+
+        /* 数据加载中：数值区模糊 + 骨架闪光，真实信息到达后再显示 */
+        #mr-widget.mr-loading #mr-points-box,
+        #mr-widget.mr-loading .mr-metric {
+            filter: blur(3px);
+            pointer-events: none;
+            user-select: none;
+        }
+        #mr-widget.mr-loading .mr-metric { position: relative; }
+        #mr-widget.mr-loading .mr-metric::after {
+            content: '';
+            position: absolute; left: 14px; right: 14px; bottom: 9px; height: 5px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(15, 108, 189, .10) 25%, rgba(15, 108, 189, .30) 50%, rgba(15, 108, 189, .10) 75%);
+            background-size: 200% 100%;
+            animation: mr-shimmer 1.2s infinite linear;
+        }
+        @keyframes mr-shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
         #mr-status {
             margin: 12px 14px 0;
@@ -735,6 +754,7 @@
     const $ = id => document.querySelector(id);
     const nodes = {
         panel: $('#mr-panel'),
+        widget: $('#mr-widget'),
         fab: $('#mr-fab'),
         close: $('#mr-close'),
         settingsBtn: $('#mr-settings-btn'),
@@ -891,6 +911,9 @@
     }
 
     function render() {
+        // 数据未到达时显示模糊骨架，不渲染真实数字与操作
+        nodes.widget.classList.toggle('mr-loading', !state.loaded);
+
         const name = state.levelName;
         const icon = levelIcon(name, state.level);
         nodes.level.textContent = name ? `${icon} ${name}` : icon;
@@ -1241,8 +1264,13 @@
             }));
             const data = JSON.parse(res);
             const r = data.response || {};
+            const lvInfo = (r.levelInfo && typeof r.levelInfo === 'object') ? r.levelInfo : {};
+            const dapiLevel = Number(lvInfo.activeLevel ?? r.level ?? lvInfo.currentLevel ?? 0) || 0;
+            const dapiLevelName = normalizeLevelName(lvInfo.activeLevelName || lvInfo.levelName || lvInfo.name || r.levelName || '');
             return {
                 balance: Number(r.balance || 0),
+                level: dapiLevel,
+                levelName: dapiLevelName,
                 promos: (r.promotions || []).map(normalizePromo).filter(Boolean),
                 counters: r.counters || {}
             };
@@ -1406,7 +1434,8 @@
     }
 
     // 与日常任务无关的任务（打卡等）不计入任务进度
-    const NON_ACTIVITY = /readarticle|DailyCheckIn|Gamification_DailySet|Install_RewardsApp/i;
+    // 注意：Gamification_DailySet 是每日任务（Quiz 等），应计入日常任务，故不在此排除
+    const NON_ACTIVITY = /readarticle|DailyCheckIn|Install_RewardsApp/i;
 
     // Edge 每日浏览 30 分钟：由 Edge 客户端累计时长，网页脚本无法代完成
     function isEdgeBrowse(promo) {
@@ -1431,39 +1460,56 @@
     }
 
     // 打卡相关的 offerId / 类型：DAPI promotions 里的连续打卡系列
-    // 注意：DailySet 单独出现往往是日常任务（Quiz 等），必须搭配 Gamification/Streak/CheckIn 才是打卡
-    const CHECKIN_OFFER = /(Gamification_DailySet|Gamification_Streak|DailyCheckIn|Daily_Checkin|SearchStreak|SearchDaily_Streak|CheckInDaily|DailyLogin|DailyReward|SetDefaultSearch|Gamification_CheckIn|Gamification_DailyCheckIn|Streak_Daily|Daily_Streak)/i;
+    // 注意：DailySet 是日常任务（Quiz 等），不计入打卡；必须搭配 Gamification/Streak/CheckIn 才是打卡
+    const CHECKIN_OFFER = /(Gamification_Streak|DailyCheckIn|Daily_Checkin|SearchStreak|SearchDaily_Streak|CheckInDaily|DailyLogin|DailyReward|SetDefaultSearch|Gamification_CheckIn|Gamification_DailyCheckIn|Streak_Daily|Daily_Streak)/i;
     const CHECKIN_TITLE = /(连续打卡|连续登录|每日登录|每日签到|每日打卡|每日连续|搜索连续|Edge.*连续|必应.*连续|连签|连胜)/i;
     function isCheckinPromo(p) {
         if (!p) return false;
         if (CHECKIN_OFFER.test(p.offerId || '')) return !isNonWebTask(p);
         if (CHECKIN_TITLE.test(p.title || '')) return !isNonWebTask(p);
-        // DAPI 里 promotionType/streak 类任务带进度（如 1/3 天），也视为打卡
-        if (/streak|checkin|daily/i.test(p.type || '') && (p.max > 0 || p.points > 0)) return !isNonWebTask(p);
+        // DAPI 里 streak/checkin 类型任务带进度（如 1/3 天），也视为打卡；裸 daily 不计入
+        if (/streak|checkin/i.test(p.type || '') && (p.max > 0 || p.points > 0)) return !isNonWebTask(p);
         return false;
     }
 
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
+            const firstLoad = !state.loaded;
+            if (firstLoad) setBusyStatus('正在读取账户信息…');
             try {
                 const [dash, dapi] = await Promise.all([fetchDashboard(), fetchDapiOverview()]);
-                const all = [...dash.promos, ...((dapi && dapi.promos) || [])];
 
-                // 调试：显示抓到的全部卡片（便于定位名称变更）
+                // 账户信息以 OAuth(DAPI) 为准；未授权 / DAPI 失败时才回退到页面(cookie)解析
+                let sourcePromos;
+                let source = 'HTML';
+                if (dapi && dapi.promos && dapi.promos.length) {
+                    source = 'DAPI';
+                    sourcePromos = dapi.promos;
+                } else {
+                    source = 'HTML';
+                    const map = new Map();
+                    for (const promo of dash.promos) {
+                        if (!promo || !promo.offerId) continue;
+                        map.set(promo.offerId, map.has(promo.offerId) ? mergePromo(map.get(promo.offerId), promo) : promo);
+                    }
+                    sourcePromos = [...map.values()];
+                }
+
+                // 调试：分别打印两个来源 + 归类结果，便于定位数量偏差
                 if (!opts.quiet) {
-                    const summary = all.map(p => `[${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(p.title || '', 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`).slice(0, 40);
-                    if (summary.length) console.log('[MR promos]', summary.join('\n  '));
+                    const fmt = (p, src) => `[${src}|${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(p.title || '', 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`;
+                    const lines = [
+                        ...(dapi && dapi.promos ? dapi.promos.map(p => fmt(p, 'DAPI')) : []),
+                        ...dash.promos.map(p => fmt(p, 'HTML'))
+                    ];
+                    if (lines.length) console.log('[MR promos]\n  ' + lines.slice(0, 80).join('\n  '));
                 }
-                const map = new Map();
-                for (const promo of all) {
-                    if (!promo || !promo.offerId) continue;
-                    map.set(promo.offerId, map.has(promo.offerId) ? mergePromo(map.get(promo.offerId), promo) : promo);
-                }
-                const allPromos = [...map.values()].filter(p => !p.hidden && !p.locked);
+
+                const allPromos = sourcePromos.filter(p => !p.hidden && !p.locked);
                 const activePromos = allPromos.filter(p => !NON_ACTIVITY.test(p.offerId));
 
-                // 打卡任务：必应搜索连续打卡 / 每日连续打卡 / Edge 浏览连续打卡（跳过 App）
+                // 打卡任务：每日打卡 / 连续打卡系列（跳过 App）
                 const checkinPromos = allPromos.filter(isCheckinPromo);
                 state.checkinPromos = checkinPromos;
                 state.checkinMax = checkinPromos.length;
@@ -1475,22 +1521,34 @@
                 state.promosTotal = autoPromos.length;
                 state.promosDone = autoPromos.filter(p => p.complete).length;
 
+                if (!opts.quiet) {
+                    console.log('[MR counts] source=' + source,
+                        'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
+                        'auto=' + state.promosTotal + '/' + autoPromos.filter(p => p.complete).length);
+                }
+
+                // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
                 const user = dash.user || {};
                 const domLevelName = readLevelFromDom();
-                const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
-                if (dash.activeLevel > 0) state.level = dash.activeLevel;
-                else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+                if (dapi && dapi.level > 0) {
+                    state.level = dapi.level;
+                } else {
+                    const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
+                    if (dash.activeLevel > 0) state.level = dash.activeLevel;
+                    else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+                }
 
-                // 等级名称：当前页面显示 > 看板页面；抓不到时清空，界面回退为图标
-                const levelName = domLevelName || dash.levelName;
+                // 等级名称：当前页面 DOM > OAuth(DAPI) > 看板页面；抓不到时清空，界面回退为图标
+                const levelName = domLevelName || (dapi && dapi.levelName) || dash.levelName;
                 if (levelName) {
                     state.levelName = levelName;
                     const byName = levelFromName(levelName);
                     if (byName) state.level = byName;
-                } else if (dash.user || dash.activeLevel > 0) {
+                } else if (dapi || dash.user || dash.activeLevel > 0) {
                     state.levelName = '';
                 }
 
+                // 积分：OAuth(DAPI) 优先
                 if (dapi && dapi.balance) state.points = dapi.balance;
                 else if (typeof user.availablePoints === 'number') state.points = user.availablePoints;
 
@@ -1498,16 +1556,21 @@
                 state.searchMax = 1;
                 state.searchCur = state.searchDone ? 1 : 0;
 
+                state.loaded = true;
                 render();
+                if (firstLoad) setStatus('就绪');
                 if (!opts.quiet) {
-                    if (!dash.user && !all.length && !dapi) {
-                        log('未能读取任务数据，请确认已登录 rewards.bing.com');
+                    if (!dash.user && !sourcePromos.length && !dapi) {
+                        log('未能读取任务数据，请确认已登录 rewards.bing.com 并完成微软授权');
                     } else {
-                        log(`数据已更新：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 打卡 ${state.checkinCur}/${state.checkinMax} · 任务 ${state.promosDone}/${state.promosTotal}`);
+                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 打卡 ${state.checkinCur}/${state.checkinMax} · 任务 ${state.promosDone}/${state.promosTotal}`);
                     }
                 }
                 return true;
             } catch (e) {
+                state.loaded = true;
+                render();
+                if (firstLoad) setStatus('读取失败');
                 console.error('[MR] updateData', e);
                 if (!opts.quiet) log(`数据获取失败：${e.message}`);
                 return false;
@@ -2214,7 +2277,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.0');
+        log('脚本就绪 v1.2.2');
 
         await updateData({ quiet: true });
 

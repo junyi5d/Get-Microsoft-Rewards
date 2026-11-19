@@ -278,7 +278,7 @@ const PRESETS = {
 
 <div align="center">
 
-**Made with ❤️ by QingJ**
+**Made with ❤️ by QingJ · junyi5d**
 
 [⬆ 回到顶部](#get-microsoft-rewards)
 
