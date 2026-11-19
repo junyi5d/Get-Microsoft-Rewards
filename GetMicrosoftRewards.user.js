@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.2
+// @version      1.2.3
 // @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索连续打卡与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -1496,8 +1496,8 @@
                     sourcePromos = [...map.values()];
                 }
 
-                // 调试：分别打印两个来源 + 归类结果，便于定位数量偏差
-                if (!opts.quiet) {
+                // 调试：分别打印两个来源 + 归类结果，便于定位数量偏差（首次加载必打，便于核对）
+                if (!opts.quiet || firstLoad) {
                     const fmt = (p, src) => `[${src}|${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(p.title || '', 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`;
                     const lines = [
                         ...(dapi && dapi.promos ? dapi.promos.map(p => fmt(p, 'DAPI')) : []),
@@ -1521,7 +1521,7 @@
                 state.promosTotal = autoPromos.length;
                 state.promosDone = autoPromos.filter(p => p.complete).length;
 
-                if (!opts.quiet) {
+                if (!opts.quiet || firstLoad) {
                     console.log('[MR counts] source=' + source,
                         'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
                         'auto=' + state.promosTotal + '/' + autoPromos.filter(p => p.complete).length);
@@ -2277,7 +2277,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.2');
+        log('脚本就绪 v1.2.3');
 
         await updateData({ quiet: true });
 
