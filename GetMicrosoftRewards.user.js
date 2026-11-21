@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.3
+// @version      1.2.4
 // @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索连续打卡与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -27,6 +27,11 @@
 // @connect      hot.baiwumm.com
 // @connect      hotapi.nntool.cc
 // @connect      cnxiaobai.com
+// @connect      raw.githubusercontent.com
+// @homepageURL  https://github.com/junyi5d/Get-Microsoft-Rewards
+// @supportURL   https://github.com/junyi5d/Get-Microsoft-Rewards/issues
+// @updateURL    https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js
+// @downloadURL  https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js
 // @license      MIT
 // @run-at       document-end
 // ==/UserScript==
@@ -532,6 +537,10 @@
         .mr-set-primary:hover { background: linear-gradient(135deg, #0d5da3, #2479c2); }
         .mr-set-auth { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         .mr-set-auth button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
+        .mr-set-about { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .mr-set-about a { font-size: 12px; font-weight: 600; color: #0f6cbd; text-decoration: none; }
+        .mr-set-about a:hover { text-decoration: underline; }
+        .mr-set-about button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
         #mr-auth-status { font-size: 11px; color: #98a2b3; }
         #mr-auth-status.ok { color: #107c10; }
         .mr-set-note { font-size: 10px; line-height: 1.5; color: #98a2b3; margin-top: 6px; }
@@ -559,6 +568,7 @@
             .mr-seg button, .mr-presets button { background: #232a33; border-color: #30363d; color: #c9d1d9; }
             .mr-seg button.active, .mr-presets button.active { background: #14304a; border-color: #2b88d8; color: #6cb6ff; }
             .mr-set-ghost { background: #232a33; border-color: #30363d; color: #c9d1d9; }
+            .mr-set-about a { color: #58a6ff; }
             .mr-check { color: #c9d1d9; }
             #mr-log-head { color: #8b949e; }
         }
@@ -1240,7 +1250,9 @@
                 }
             }
         } catch (e) {
-            console.warn('[MR] getuserinfo 获取失败', e);
+            // 未登录 rewards.bing.com 时该接口返回 401；有 DAPI 时属正常，不打扰用户
+            if (e && e.status === 401) console.debug('[MR] getuserinfo 401（页面态未登录，已跳过；DAPI 仍可用）');
+            else console.warn('[MR] getuserinfo 获取失败', e);
         }
 
         return out;
@@ -1433,9 +1445,33 @@
         }
     }
 
-    // 与日常任务无关的任务（打卡等）不计入任务进度
-    // 注意：Gamification_DailySet 是每日任务（Quiz 等），应计入日常任务，故不在此排除
-    const NON_ACTIVITY = /readarticle|DailyCheckIn|Install_RewardsApp/i;
+    // ---- 任务归类：与 rewards 页面栏目对齐 ----
+    // 每日活动（打卡）：Gamification_DailySet_<lang>_<YYYYMMDD>_ChildN，每天重置
+    function isDailySetPromo(p) {
+        return !!p && /^Gamification_DailySet/i.test(p.offerId || '');
+    }
+
+    // 次日预载的每日活动（页面会提前下发），不计入今天
+    function isFuturePromo(p) {
+        const m = String((p && p.offerId) || '').match(/(20\d{6})/);
+        if (!m) return false;
+        const now = new Date();
+        const today = Number(`${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`);
+        return Number(m[1]) > today;
+    }
+
+    // 元数据 / 抽奖 / App 专属 / 搜索积分计数：既不是打卡也不是日常任务
+    const META_OFFER = /^(level_info|redeem_info|user_info|user_redemption_challenge_exempt|gamification_streak_counter_promotion)$/i;
+    const APP_OFFER = /(sapphire|fosbury|appnewbonus|appinstall|appmigration|install_rewardsapp)/i;
+    function isNoisePromo(p) {
+        if (!p) return true;
+        const id = p.offerId || '';
+        if (META_OFFER.test(id)) return true;
+        if (/sweeps|sweepstake|highvaluesweepstakes/i.test(`${id} ${p.type || ''}`)) return true;
+        if (APP_OFFER.test(id)) return true;
+        if (/^WW_search_global/i.test(id)) return true; // 搜索积分任务，归「搜索」栏
+        return isNonWebTask(p);
+    }
 
     // Edge 每日浏览 30 分钟：由 Edge 客户端累计时长，网页脚本无法代完成
     function isEdgeBrowse(promo) {
@@ -1470,6 +1506,30 @@
         // DAPI 里 streak/checkin 类型任务带进度（如 1/3 天），也视为打卡；裸 daily 不计入
         if (/streak|checkin/i.test(p.type || '') && (p.max > 0 || p.points > 0)) return !isNonWebTask(p);
         return false;
+    }
+
+    // 从 Rewards 面板 DOM 精确读取「日常任务 x/y」（如 15/20）；读不到返回 null
+    function readDailyTaskFromDom() {
+        try {
+            if (!document.body || !document.createTreeWalker) return null;
+            const walker = document.createTreeWalker(document.body, 4 /* SHOW_TEXT */, null);
+            let node;
+            while ((node = walker.nextNode())) {
+                if (!node.nodeValue || node.nodeValue.trim() !== '日常任务') continue;
+                const host = node.parentElement;
+                if (!host || (host.closest && host.closest('#mr-panel, #mr-settings-mask, script, style'))) continue;
+                const scope = host.parentElement || host;
+                const m = String(scope.textContent || '').match(/日常任务[\s\S]{0,24}?(\d+)\s*\/\s*(\d+)/);
+                if (m) {
+                    const done = Number(m[1]);
+                    const total = Number(m[2]);
+                    if (total > 0 && done <= total) return { done, total };
+                }
+            }
+            return null;
+        } catch (e) {
+            return null;
+        }
     }
 
     async function updateData(opts = {}) {
@@ -1507,24 +1567,33 @@
                 }
 
                 const allPromos = sourcePromos.filter(p => !p.hidden && !p.locked);
-                const activePromos = allPromos.filter(p => !NON_ACTIVITY.test(p.offerId));
 
-                // 打卡任务：每日打卡 / 连续打卡系列（跳过 App）
-                const checkinPromos = allPromos.filter(isCheckinPromo);
+                // 打卡 = 每日活动（今日 DailySet，每天重置）；识别不到时回退连续打卡类卡片
+                let checkinPromos = allPromos.filter(p => isDailySetPromo(p) && !isFuturePromo(p) && !isNonWebTask(p));
+                if (!checkinPromos.length) checkinPromos = allPromos.filter(isCheckinPromo);
                 state.checkinPromos = checkinPromos;
                 state.checkinMax = checkinPromos.length;
                 state.checkinCur = checkinPromos.filter(p => p.complete).length;
 
-                // 日常任务：按当前可完成的卡片及其完成数量统计
-                const autoPromos = activePromos.filter(p => !isEdgeBrowse(p) && !isNonAutoTask(p));
+                // 日常任务：排除每日活动、元数据/抽奖/App、Edge 浏览与不可自动完成项
+                const autoPromos = allPromos.filter(p => !isDailySetPromo(p) && !isNoisePromo(p) && !isEdgeBrowse(p) && !isNonAutoTask(p));
                 state.promos = autoPromos;
-                state.promosTotal = autoPromos.length;
-                state.promosDone = autoPromos.filter(p => p.complete).length;
+
+                // 页面有「日常任务 x/y」时以页面为准（更完整），否则按可执行卡片统计
+                const dailyDom = readDailyTaskFromDom();
+                if (dailyDom) {
+                    state.promosTotal = dailyDom.total;
+                    state.promosDone = dailyDom.done;
+                } else {
+                    state.promosTotal = autoPromos.length;
+                    state.promosDone = autoPromos.filter(p => p.complete).length;
+                }
 
                 if (!opts.quiet || firstLoad) {
                     console.log('[MR counts] source=' + source,
                         'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
-                        'auto=' + state.promosTotal + '/' + autoPromos.filter(p => p.complete).length);
+                        'auto=' + state.promosDone + '/' + state.promosTotal + (dailyDom ? '(dom)' : '') +
+                        ' raw=' + autoPromos.filter(p => p.complete).length + '/' + autoPromos.length);
                 }
 
                 // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
@@ -2029,27 +2098,26 @@
                 if (e.message === '未授权') showAuth();
             }
 
-            if (state.signDone) {
-                for (const p of state.checkinPromos) {
-                    if (/DailyCheckIn|Gamification_DailySet/i.test(p.offerId)) p.complete = true;
-                }
-                state.checkinCur = state.checkinPromos.filter(p => p.complete).length;
-                render();
-            }
-
-            // 连续打卡任务中的可完成链接（已跳过 App；每日打卡由 DAPI 处理）
-            const pending = state.checkinPromos.filter(p => !p.complete && !/DailyCheckIn|Gamification_DailySet/i.test(p.offerId));
-            if (pending.length) {
+            // 每日活动：已完成的直接计入进度，只对未完成的卡片执行
+            const pending = state.checkinPromos.filter(p => !p.complete);
+            if (!pending.length) {
+                log(`今日打卡任务已完成（${state.checkinCur}/${state.checkinMax}）`);
+            } else {
+                log(`正在打卡：${pending.length} 个每日活动`);
                 let token = '';
                 try { token = await getVerificationToken(); } catch (e) { }
+                let ok = 0;
                 for (let i = 0; i < pending.length; i++) {
+                    if (state.manualPaused) await waitWhilePaused();
                     const promo = pending[i];
                     setBusyStatus(`打卡 ${i + 1}/${pending.length}：${shorten(promo.title, 12)}`);
-                    log(`打卡：${shorten(promo.title, 20)}`);
-                    const ok = await completePromo(promo, token);
-                    log(ok ? `已提交：${shorten(promo.title, 20)}` : `未能完成：${shorten(promo.title, 20)}`);
+                    log(`打卡 ${i + 1}/${pending.length}：${shorten(promo.title, 20)}`);
+                    const done = await completePromo(promo, token);
+                    if (done) ok++;
+                    log(done ? `已提交：${shorten(promo.title, 20)}` : `未能完成：${shorten(promo.title, 20)}`);
                     if (i < pending.length - 1) await waitTick(nextTaskDelay(), '打卡间隔');
                 }
+                log(`打卡处理完成 ${ok}/${pending.length}`);
             }
 
             setStatus('核对打卡结果');
@@ -2101,6 +2169,14 @@
                     </div>
                     <div class="mr-set-note" id="mr-cookie-status">Cookie 读取：检测中…</div>
                 </div>
+                <div class="mr-set-group">
+                    <div class="mr-set-title">关于</div>
+                    <div class="mr-set-about">
+                        <a id="mr-set-version" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.4</a>
+                        <button id="mr-set-update" class="mr-set-ghost">检查更新</button>
+                    </div>
+                    <div class="mr-set-note" id="mr-update-status"></div>
+                </div>
                 <div class="mr-set-actions">
                     <button id="mr-set-reset" class="mr-set-ghost">恢复默认</button>
                     <button id="mr-set-save" class="mr-set-primary">保存设置</button>
@@ -2115,6 +2191,50 @@
     const authStatusEl = settingsMask.querySelector('#mr-auth-status');
     const cookieStatusEl = settingsMask.querySelector('#mr-cookie-status');
     let cookieChecked = false;
+
+    // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
+    const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
+    const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.4';
+    const versionEl = settingsMask.querySelector('#mr-set-version');
+    const updateStatusEl = settingsMask.querySelector('#mr-update-status');
+    versionEl.textContent = 'v' + SCRIPT_VERSION;
+    versionEl.href = REPO_URL;
+
+    function compareVersion(a, b) {
+        const pa = String(a).split('.').map(Number);
+        const pb = String(b).split('.').map(Number);
+        for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+            const x = pa[i] || 0;
+            const y = pb[i] || 0;
+            if (x !== y) return x > y ? 1 : -1;
+        }
+        return 0;
+    }
+
+    settingsMask.querySelector('#mr-set-update').onclick = async () => {
+        updateStatusEl.className = 'mr-set-note';
+        updateStatusEl.textContent = '正在检查更新…';
+        try {
+            const text = await request({
+                url: `${RAW_URL}?_=${Date.now()}`,
+                headers: { 'Accept': 'text/plain, */*', 'User-Agent': CONFIG.ua.pc },
+                retries: 0
+            });
+            const m = String(text || '').match(/@version\s+([\d.]+)/);
+            if (!m) throw new Error('无法解析版本号');
+            const latest = m[1];
+            if (compareVersion(latest, SCRIPT_VERSION) > 0) {
+                updateStatusEl.textContent = `发现新版本 v${latest}（当前 v${SCRIPT_VERSION}），点击版本号前往更新`;
+                updateStatusEl.className = 'mr-set-note warn';
+            } else {
+                updateStatusEl.textContent = `已是最新版本 v${SCRIPT_VERSION}`;
+            }
+        } catch (e) {
+            updateStatusEl.textContent = `检查更新失败：${e.message}`;
+            updateStatusEl.className = 'mr-set-note warn';
+        }
+    };
 
     function refreshAuthStatus() {
         let text = '授权状态：未授权';
@@ -2251,7 +2371,7 @@
             const tasks = [];
             if (state.checkinMax === 0 || state.checkinCur < state.checkinMax) tasks.push({ name: '打卡', run: runCheckin });
             if (!state.searchDone) tasks.push({ name: '搜索', run: runSearch });
-            if (state.promosTotal === 0 || state.promosDone < state.promosTotal) tasks.push({ name: '任务', run: runPromo });
+            if (state.promos.some(p => isPromoEligible(p))) tasks.push({ name: '任务', run: runPromo });
             shuffle(tasks);
             if (!tasks.length) {
                 log('今日可获得的积分任务均已完成');
@@ -2277,7 +2397,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.3');
+        log('脚本就绪 v1.2.4');
 
         await updateData({ quiet: true });
 
