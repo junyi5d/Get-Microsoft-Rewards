@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.6
+// @version      1.2.7
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -396,23 +396,23 @@
         @keyframes mr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
         .mr-status-track { margin-top: 7px; height: 3px; }
 
-        #mr-auth { margin: 12px 14px 0; padding: 10px; border-radius: 11px; background: #fffaf0; border: 1px solid #fde7c3; }
-        .mr-auth-title { font-size: 11px; font-weight: 600; color: #9a6700; margin-bottom: 7px; }
+        #mr-auth { margin: 12px 14px 0; padding: 10px; border-radius: 11px; background: #f2f8fd; border: 1px solid #d3e7f8; }
+        .mr-auth-title { font-size: 11px; font-weight: 600; color: #0f6cbd; margin-bottom: 7px; }
         #mr-auth-in {
             width: 100%; height: 28px; margin: 6px 0;
             padding: 0 8px; border-radius: 7px;
-            border: 1px solid #e6d5b3; background: #fff;
+            border: 1px solid #cfe3f5; background: #fff;
             font-size: 11px; color: #333; outline: none;
         }
-        #mr-auth-in:focus { border-color: #e0aa3e; }
+        #mr-auth-in:focus { border-color: #0f6cbd; }
         .mr-auth-link, .mr-auth-save {
             width: 100%; height: 28px; border-radius: 7px;
             font-size: 11px; font-weight: 500;
         }
-        .mr-auth-link { background: #fdf1d8; color: #8a5a00; border: 1px solid #f0d9a8; margin-bottom: 2px; }
-        .mr-auth-link:hover { background: #fbe8c2; }
-        .mr-auth-save { background: #9a6700; color: #fff; }
-        .mr-auth-save:hover { background: #835700; }
+        .mr-auth-link { background: #eaf4fd; color: #0f6cbd; border: 1px solid #cfe3f5; margin-bottom: 2px; }
+        .mr-auth-link:hover { background: #dcecfb; }
+        .mr-auth-save { background: #0f6cbd; color: #fff; }
+        .mr-auth-save:hover { background: #0d5da3; }
 
         #mr-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 14px 14px; }
         .mr-btn {
@@ -519,20 +519,20 @@
         .mr-version-row { display: flex; align-items: center; gap: 8px; }
         .mr-version-badge {
             font-size: 12px; font-weight: 600;
-            color: #d14343; background: #fdecec; border: 1px solid #f8d7d7;
+            color: #0f6cbd; background: #eaf4fd; border: 1px solid #cfe3f5;
             padding: 4px 11px; border-radius: 999px; text-decoration: none;
         }
-        .mr-version-badge:hover { background: #fbdede; }
+        .mr-version-badge:hover { background: #dcecfb; }
         .mr-update-btn {
             width: 29px; height: 29px; padding: 0; border-radius: 999px;
-            border: 1px solid #f8d7d7; background: #fdecec; color: #d14343;
+            border: 1px solid #cfe3f5; background: #eaf4fd; color: #0f6cbd;
             font-size: 15px; line-height: 1;
             display: flex; align-items: center; justify-content: center;
         }
-        .mr-update-btn:hover { background: #fbdede; }
+        .mr-update-btn:hover { background: #dcecfb; }
         .mr-update-btn.spin { animation: mr-spin .9s linear infinite; }
         @keyframes mr-spin { to { transform: rotate(360deg); } }
-        .mr-set-note a { color: #d14343; font-weight: 600; text-decoration: none; }
+        .mr-set-note a { color: #0f6cbd; font-weight: 600; text-decoration: none; }
         .mr-set-note a:hover { text-decoration: underline; }
         .mr-reward { margin-top: 14px; padding-top: 13px; border-top: 1px dashed #e3e8ee; text-align: center; }
         .mr-reward-tip { font-size: 10px; color: #98a2b3; margin-bottom: 8px; }
@@ -566,17 +566,18 @@
             #mr-status-text { color: #6cb6ff; }
             #mr-status-time { color: #c9d1d9; }
             .mr-btn:hover { background: #2a333d; border-color: #3d4854; }
-            #mr-auth { background: #2a2314; border-color: #4a3a17; }
-            .mr-auth-title { color: #e3b341; }
-            #mr-auth-in { background: #1c2128; border-color: #4a3a17; color: #e6edf3; }
+            #mr-auth { background: #102434; border-color: #1e4a6b; }
+            .mr-auth-title { color: #6cb6ff; }
+            #mr-auth-in { background: #0f1c28; border-color: #1e4a6b; color: #e6edf3; }
             #mr-settings { background: #1c2128; color: #e6edf3; }
             .mr-set-title { color: #c9d1d9; }
             .mr-seg button, .mr-presets button { background: #232a33; border-color: #30363d; color: #c9d1d9; }
             .mr-seg button.active, .mr-presets button.active { background: #14304a; border-color: #2b88d8; color: #6cb6ff; }
             .mr-set-ghost { background: #232a33; border-color: #30363d; color: #c9d1d9; }
-            .mr-version-badge { color: #ff8f8f; background: #3a2222; border-color: #5c3333; }
-            .mr-update-btn { color: #ff8f8f; background: #3a2222; border-color: #5c3333; }
-            #mr-reward-box { background: #ffffff; border-color: #5c3333; }
+            .mr-version-badge { color: #6cb6ff; background: #102434; border-color: #1e4a6b; }
+            .mr-update-btn { color: #6cb6ff; background: #102434; border-color: #1e4a6b; }
+            .mr-set-note a { color: #6cb6ff; }
+            #mr-reward-box { background: #ffffff; border-color: #d3e7f8; }
             .mr-check { color: #c9d1d9; }
             #mr-log-head { color: #8b949e; }
         }
@@ -641,10 +642,10 @@
         #mr-status-text { color: #0078d4; }
         #mr-status-time { color: #333; }
 
-        #mr-auth { background: #fff8e1; border: 1px solid #ffe0b2; border-radius: 6px; }
-        .mr-auth-title { color: #8a5a00; }
-        #mr-auth-in { border: 1px solid #ddd; background: #fff; color: #333; border-radius: 4px; }
-        .mr-auth-link { background: #fff; color: #555; border: 1px solid #ddd; border-radius: 4px; }
+        #mr-auth { background: #f2f8fd; border: 1px solid #d3e7f8; border-radius: 6px; }
+        .mr-auth-title { color: #0f6cbd; }
+        #mr-auth-in { border: 1px solid #cfe3f5; background: #fff; color: #333; border-radius: 4px; }
+        .mr-auth-link { background: #eaf4fd; color: #0f6cbd; border: 1px solid #cfe3f5; border-radius: 4px; }
         .mr-auth-save { background: #0078d4; color: #fff; border: 0; border-radius: 4px; }
 
         .mr-btn { background: #f5f6f8; border: 1px solid #d0d0d0; border-radius: 4px; }
@@ -683,8 +684,8 @@
             .mr-seg button, .mr-presets button { background: #232a33; border-color: #30363d; color: #c9d1d9; }
             .mr-set-title, .mr-check { color: #c9d1d9; }
             .mr-set-ghost { background: #232a33; border-color: #30363d; color: #c9d1d9; }
-            #mr-auth { background: #2a2314; border-color: #4a3a17; }
-            #mr-auth-in { background: #1c2128; border-color: #4a3a17; color: #e6edf3; }
+            #mr-auth { background: #102434; border-color: #1e4a6b; }
+            #mr-auth-in { background: #0f1c28; border-color: #1e4a6b; color: #e6edf3; }
         }
     `);
 
@@ -1947,11 +1948,17 @@
         return !/sweepstake|referandearn|refer and earn|orderhistory|\/redeem|install_rewardsapp|bing wallpaper|set bing as your default/.test(text);
     }
 
-    async function completePromo(promo, token) {
-        let accepted = false;
+    // 阅读赚分每次 +3 分，按剩余积分计算还需阅读的篇数（最多 10 篇）
+    function readRounds(promo) {
+        if (!promo || promo.type !== 'msnreadearn') return 1;
+        const max = Number(promo.max) > 0 ? Number(promo.max) : 30;
+        const cur = Number(promo.progress) || 0;
+        if (cur >= max) return 1;
+        return clamp(Math.ceil((max - cur) / 3), 1, 10);
+    }
 
-        // 模拟真实浏览：先停留一会儿再交卷
-        await sleep(randomRange(900, 2400));
+    async function submitPromo(promo, token) {
+        let accepted = false;
 
         // 通道 1：DAPI（与 Rewards App 同源）
         try {
@@ -1967,12 +1974,33 @@
             if (await serverActionActivity(promo)) accepted = true;
         } catch (e) { /* 继续尝试旧接口 */ }
 
-        // 通道 3：旧版 reportactivity（有 Token 更稳，没有也尝试一次）
-        try {
-            await reportActivity(promo, token);
-            accepted = true;
-        } catch (e) {
-            if (e.status === 401) log(`任务上报被拒（HTTP 401）：${shorten(promo.title, 16)}`);
+        // 通道 3：旧版 reportactivity（仅在有 verification token 时尝试）
+        if (token) {
+            try {
+                await reportActivity(promo, token);
+                accepted = true;
+            } catch (e) {
+                console.debug('[MR] 旧版 reportActivity 未通过', e && e.status);
+            }
+        }
+
+        return accepted;
+    }
+
+    async function completePromo(promo, token) {
+        // 模拟真实浏览：先停留一会儿再交卷
+        await sleep(randomRange(900, 2400));
+
+        const rounds = readRounds(promo);
+        let accepted = false;
+        for (let i = 0; i < rounds; i++) {
+            if (i > 0) {
+                log(`阅读任务继续：第 ${i + 1}/${rounds} 次`);
+                await sleep(randomRange(1800, 3600));
+            }
+            const ok = await submitPromo(promo, token);
+            accepted = accepted || ok;
+            if (!ok) break;
         }
 
         // 通道 4：访问目标页（部分 urlreward 卡需要）
@@ -2007,7 +2035,7 @@
             }
 
             const token = await getVerificationToken();
-            if (!token) console.log('[MR] verificationToken 缺失：旧版 reportActivity 通道会跳过，Server Action / DAPI 不受影响');
+            if (!token) console.debug('[MR] 未获取到 verificationToken，旧版上报通道将跳过（DAPI / Server Action 不受影响）');
 
             log(`待执行任务 ${tasks.length} 个`);
             let ok = 0;
@@ -2145,8 +2173,8 @@
                 <div class="mr-set-group">
                     <div class="mr-set-title">图标位置</div>
                     <div class="mr-seg" data-group="position">
-                        <button data-val="right">右下角</button>
                         <button data-val="left">左下角</button>
+                        <button data-val="right">右下角</button>
                     </div>
                 </div>
                 <div class="mr-set-group">
@@ -2167,7 +2195,7 @@
                 <div class="mr-set-group">
                     <div class="mr-set-title">关于</div>
                     <div class="mr-version-row">
-                        <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.6</a>
+                        <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.7</a>
                         <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
                     </div>
                     <div class="mr-set-note" id="mr-update-status"></div>
@@ -2178,7 +2206,7 @@
                 </div>
                 <div class="mr-reward">
                     <div class="mr-reward-tip">❤️ 免费应用 · 自愿赞助 · 感谢支持</div>
-                    <button id="mr-reward-toggle" class="mr-reward-btn" aria-expanded="false">🎁 展开赞赏码</button>
+                    <button id="mr-reward-toggle" class="mr-reward-btn" aria-expanded="false">🎁 赞赏支持</button>
                     <div id="mr-reward-box" class="mr-hidden">
                         <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/wechat-reward-qr.png" alt="微信赞赏码">
                         <span>微信赞赏码</span>
@@ -2196,7 +2224,7 @@
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.6';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.7';
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     const updateBtnEl = settingsMask.querySelector('#mr-set-update');
@@ -2258,7 +2286,7 @@
         const show = rewardBox.classList.contains('mr-hidden');
         rewardBox.classList.toggle('mr-hidden', !show);
         rewardToggleEl.setAttribute('aria-expanded', String(show));
-        rewardToggleEl.textContent = show ? '🎁 收起赞赏码' : '🎁 展开赞赏码';
+        rewardToggleEl.textContent = show ? '🎁 收起赞赏' : '🎁 赞赏支持';
     };
 
     function refreshAuthStatus() {
@@ -2403,7 +2431,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.6');
+        log('脚本就绪 v1.2.7');
 
         await updateData({ quiet: true });
 
