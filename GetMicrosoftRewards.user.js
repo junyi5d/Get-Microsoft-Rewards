@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.7
+// @version      1.2.8
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -144,15 +144,19 @@
         checkinMax: 0,
         checkinPromos: [],
         searchCur: 0,
-        searchMax: 3,
+        searchMax: 60,
+        searchCount: 0,
         searchDone: false,
         promos: [],
         promosTotal: 0,
         promosDone: 0,
+        readingPromos: [],
+        readingCur: 0,
+        readingMax: 0,
         running: false,
         allRunning: false,
         busyCount: 0,
-        busy: { sign: false, promo: false },
+        busy: { sign: false, promo: false, read: false },
         manualPaused: false,
         pausePromise: null,
         pauseResolver: null,
@@ -163,9 +167,13 @@
         authShown: false
     };
 
+    const SEARCH_MAX = 60;
+    const SEARCH_STEP = 3;
+    const SEARCH_LIMIT = SEARCH_MAX / SEARCH_STEP;
+
     // ========== 进度保存/恢复 ==========
     function saveProgress() {
-        GM_setValue(STORAGE_KEY, JSON.stringify({ date: getDateHyphen(), searchDone: state.searchDone }));
+        GM_setValue(STORAGE_KEY, JSON.stringify({ date: getDateHyphen(), searchCount: state.searchCount }));
     }
 
     function loadProgress() {
@@ -174,9 +182,11 @@
             if (!raw) return;
             const data = JSON.parse(raw);
             if (data.date !== getDateHyphen()) return;
-            const done = data.searchDone !== undefined ? !!data.searchDone : Number(data.searchCount) > 0;
-            state.searchDone = done;
-            state.searchCur = done ? 3 : 0;
+            const count = data.searchCount !== undefined ? Number(data.searchCount) : (data.searchDone ? 1 : 0);
+            state.searchCount = clamp(Number(count) || 0, 0, SEARCH_LIMIT);
+            state.searchCur = state.searchCount * SEARCH_STEP;
+            state.searchMax = SEARCH_MAX;
+            state.searchDone = state.searchCur >= SEARCH_MAX;
         } catch (e) { }
     }
 
@@ -362,6 +372,7 @@
         }
         .mr-fill.green { background: linear-gradient(90deg, #16a34a, #4ade80); }
         .mr-fill.orange { background: linear-gradient(90deg, #ea8a17, #f7bf4f); }
+        .mr-fill.purple { background: linear-gradient(90deg, #7c3aed, #a78bfa); }
 
         /* 数据加载中：数值区模糊 + 骨架闪光，真实信息到达后再显示 */
         #mr-widget.mr-loading #mr-points-box,
@@ -414,7 +425,9 @@
         .mr-auth-save { background: #0f6cbd; color: #fff; }
         .mr-auth-save:hover { background: #0d5da3; }
 
-        #mr-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 12px 14px 14px; }
+        .mr-btn:disabled { opacity: .45; cursor: not-allowed; }
+        #mr-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 12px 14px 14px; }
+        #mr-actions.no-read { grid-template-columns: repeat(3, 1fr); }
         .mr-btn {
             display: flex; align-items: center; justify-content: center; gap: 6px;
             height: 34px; border-radius: 10px;
@@ -517,6 +530,8 @@
         .mr-set-auth { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         .mr-set-auth button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
         .mr-version-row { display: flex; align-items: center; gap: 8px; }
+        .mr-about-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .mr-about-row .mr-set-title { margin-bottom: 0; }
         .mr-version-badge {
             font-size: 12px; font-weight: 600;
             color: #0f6cbd; background: #eaf4fd; border: 1px solid #cfe3f5;
@@ -731,12 +746,16 @@
                 <div class="mr-track"><i class="mr-fill orange" id="mr-checkin-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-search-wrap">
-                <div class="mr-metric-top"><span>必应搜索</span><span id="mr-search">0/3</span></div>
+                <div class="mr-metric-top"><span>必应搜索</span><span id="mr-search">0/60</span></div>
                 <div class="mr-track"><i class="mr-fill" id="mr-search-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-promo-wrap">
                 <div class="mr-metric-top"><span>日常任务</span><span id="mr-promo">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill green" id="mr-promo-bar"></i></div>
+            </div>
+            <div class="mr-metric" id="mr-read-wrap">
+                <div class="mr-metric-top"><span>阅读任务</span><span id="mr-read">0/30</span></div>
+                <div class="mr-track"><i class="mr-fill purple" id="mr-read-bar"></i></div>
             </div>
 
             <div id="mr-status">
@@ -759,6 +778,7 @@
                 <button class="mr-btn" id="btn-sign">${ICONS.check}<span>打卡</span></button>
                 <button class="mr-btn" id="btn-search">${ICONS.search}<span>搜索</span></button>
                 <button class="mr-btn" id="btn-promo">${ICONS.target}<span>任务</span></button>
+                <button class="mr-btn" id="btn-read">📖<span>阅读</span></button>
                 <button class="mr-btn mr-primary" id="btn-all">${ICONS.rocket}<span>一键全部执行</span></button>
             </div>
 
@@ -788,12 +808,16 @@
         promo: $('#mr-promo'),
         promoBar: $('#mr-promo-bar'),
         promoWrap: $('#mr-promo-wrap'),
+        read: $('#mr-read'),
+        readBar: $('#mr-read-bar'),
+        readWrap: $('#mr-read-wrap'),
         status: $('#mr-status'),
         statusText: $('#mr-status-text'),
         statusTime: $('#mr-status-time'),
         statusBar: $('#mr-status-bar'),
         btnSearch: $('#btn-search'),
         btnPromo: $('#btn-promo'),
+        btnRead: $('#btn-read'),
         btnSign: $('#btn-sign'),
         btnAll: $('#btn-all'),
         boxAuth: $('#mr-auth'),
@@ -867,6 +891,13 @@
         return ms;
     }
 
+    // 搜索每次 3 分、需 20 次，间隔要比普通任务明显更久
+    function nextSearchDelay() {
+        let ms = randomRange(15000, 28000);
+        if (Math.random() < 0.2) ms += randomRange(8000, 16000);
+        return ms;
+    }
+
     // ========== 手动暂停 ==========
     function updateAllButton() {
         if (!nodes.btnAll) return;
@@ -877,6 +908,17 @@
         } else {
             nodes.btnAll.innerHTML = '<span>🚀 一键全部执行</span>';
         }
+    }
+
+    // 未读取到账户信息前禁止任何操作；执行中同步锁定对应按钮
+    function applyActionState() {
+        const lock = !state.loaded;
+        nodes.btnSign.disabled = lock || state.busy.sign;
+        nodes.btnPromo.disabled = lock || state.busy.promo;
+        nodes.btnRead.disabled = lock || state.busy.read;
+        nodes.btnSearch.disabled = lock;
+        nodes.btnAll.disabled = lock;
+        nodes.btnSearch.innerHTML = state.running ? '<span>⏹️ 停止</span>' : '<span>🔍 搜索</span>';
     }
 
     function markBusy(delta) {
@@ -939,12 +981,18 @@
         nodes.level.textContent = name ? `${icon} ${name}` : icon;
         nodes.level.title = name || '会员等级';
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
+        const hasRead = loading || state.readingMax > 0;
         nodes.checkinWrap.classList.toggle('mr-hidden', !loading && state.checkinMax === 0);
         nodes.searchWrap.classList.toggle('mr-hidden', !loading && state.searchMax === 0);
         nodes.promoWrap.classList.toggle('mr-hidden', !loading && state.promosTotal === 0);
+        nodes.readWrap.classList.toggle('mr-hidden', !hasRead);
+        nodes.btnRead.classList.toggle('mr-hidden', !hasRead);
+        nodes.widget.querySelector('#mr-actions').classList.toggle('no-read', !hasRead);
         setMetric(nodes.checkin, nodes.checkinBar, state.checkinCur, state.checkinMax);
         setMetric(nodes.search, nodes.searchBar, state.searchCur, state.searchMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
+        setMetric(nodes.read, nodes.readBar, state.readingCur, state.readingMax);
+        applyActionState();
     }
 
     // ========== 授权 ==========
@@ -1058,10 +1106,11 @@
     /*
      * 自动化基准（对照 rewards.bing.com/earn 的任务分类）：
      * 1. 打卡任务        → 今日每日活动（DailySet）+ DAPI 每日打卡（type 103）
-     * 2. 必应搜索 → 每天随机搜索 1 次
-     * 3. 日常任务        → 官方日常任务积分进度；阅读赚分等可执行任务不计入该栏目
-     * 4. 连续打卡 / 升级里程碑 → 随对应行为自动累计，不参与一键执行
-     * 5. App / 移动端 / Xbox / 邀请 → 无法由网页脚本完成，直接跳过
+     * 2. 必应搜索        → 每次 3 分、每天最多 20 次，共 60 积分
+     * 3. 日常任务        → 按实际读取到的任务积分汇总
+     * 4. 阅读任务        → msnreadearn 单列，每次 +3 分
+     * 5. 连续打卡 / 升级里程碑 → 随对应行为自动累计，不参与一键执行
+     * 6. App / 移动端 / Xbox / 邀请 → 无法由网页脚本完成，直接跳过
      */
     function normalizePromo(raw) {
         if (!raw || typeof raw !== 'object') return null;
@@ -1479,6 +1528,11 @@
         return isNonWebTask(p);
     }
 
+    // 阅读赚分（msnreadearn / readarticle）：单独按钮与进度条，每次 +3 分
+    function isReadingPromo(p) {
+        return !!p && (/^ENUS_readarticle/i.test(p.offerId || '') || /msnreadearn/i.test(p.type || ''));
+    }
+
     // Edge 每日浏览 30 分钟：由 Edge 客户端累计时长，网页脚本无法代完成
     function isEdgeBrowse(promo) {
         const title = String((promo && promo.title) || '');
@@ -1580,17 +1634,25 @@
                 state.checkinMax = checkinPoints.total;
                 state.checkinCur = checkinPoints.done;
 
-                // 日常任务：按实际读取到的任务汇总积分（不同账号任务数不同，阅读有积分也计入）
-                const autoPromos = allPromos.filter(p => !isDailySetPromo(p) && !isNoisePromo(p) && !isEdgeBrowse(p) && !isNonAutoTask(p));
+                // 日常任务：按实际读取到的任务汇总积分；阅读任务单列，不计入这里
+                const autoPromos = allPromos.filter(p => !isDailySetPromo(p) && !isNoisePromo(p) && !isEdgeBrowse(p) && !isNonAutoTask(p) && !isReadingPromo(p));
                 const dailyPoints = sumPromoPoints(autoPromos, 5);
                 state.promos = autoPromos;
                 state.promosTotal = dailyPoints.total;
                 state.promosDone = dailyPoints.done;
 
+                // 阅读任务：存在时才显示单独按键与进度条
+                const readingPromos = allPromos.filter(isReadingPromo);
+                const readingPoints = sumPromoPoints(readingPromos, 30);
+                state.readingPromos = readingPromos;
+                state.readingMax = readingPoints.total;
+                state.readingCur = readingPoints.done;
+
                 if (!opts.quiet || firstLoad) {
                     console.log('[MR counts] source=' + source,
                         'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
-                        'auto=' + state.promosDone + '/' + state.promosTotal);
+                        'auto=' + state.promosDone + '/' + state.promosTotal,
+                        'read=' + state.readingCur + '/' + state.readingMax);
                 }
 
                 // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
@@ -1618,9 +1680,13 @@
                 if (dapi && dapi.balance) state.points = dapi.balance;
                 else if (typeof user.availablePoints === 'number') state.points = user.availablePoints;
 
-                // 必应搜索：每天只执行 1 次
-                state.searchMax = 3;
-                state.searchCur = state.searchDone ? 3 : 0;
+                // 必应搜索：每天最多 20 次、每次 3 分，共 60 积分；官方进度优先
+                const searchCard = sourcePromos.find(p => /^WW_search_global/i.test(p.offerId || ''));
+                const officialSearch = searchCard ? clamp(Number(searchCard.progress) || 0, 0, SEARCH_MAX) : 0;
+                state.searchMax = SEARCH_MAX;
+                state.searchCur = clamp(Math.max(officialSearch, state.searchCount * SEARCH_STEP), 0, SEARCH_MAX);
+                state.searchCount = Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP));
+                state.searchDone = state.searchCur >= SEARCH_MAX;
 
                 state.loaded = true;
                 render();
@@ -1629,7 +1695,7 @@
                     if (!dash.user && !sourcePromos.length && !dapi) {
                         log('未能读取任务数据，请确认已登录 rewards.bing.com 并完成微软授权');
                     } else {
-                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 打卡 ${state.checkinCur}/${state.checkinMax} · 任务 ${state.promosDone}/${state.promosTotal}`);
+                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 打卡 ${state.checkinCur}/${state.checkinMax} · 搜索 ${state.searchCur}/${state.searchMax} · 任务 ${state.promosDone}/${state.promosTotal}${state.readingMax ? ` · 阅读 ${state.readingCur}/${state.readingMax}` : ''}`);
                     }
                 }
                 return true;
@@ -1710,55 +1776,71 @@
     async function runSearch() {
         if (state.running) {
             state.running = false;
-            nodes.btnSearch.innerHTML = '<span>🔍 搜索</span>';
+            applyActionState();
             updateAllButton();
+            log('已停止搜索');
+            return;
+        }
+        if (!state.loaded) {
+            log('账户信息尚未读取完成，请稍候');
             return;
         }
         if (state.busyCount > 0) {
             log('请等待当前任务完成');
             return;
         }
-        if (state.searchDone) {
-            log('今日已完成必应搜索');
+        if (state.searchCur >= SEARCH_MAX) {
+            log(`今日必应搜索已拿满（${state.searchCur}/${SEARCH_MAX}）`);
             return;
         }
 
         state.running = true;
-        nodes.btnSearch.innerHTML = '<span>⏹️ 停止</span>';
+        applyActionState();
         updateAllButton();
 
         try {
             await waitWhilePaused();
             await updateData({ quiet: true });
-            if (state.searchDone) {
-                log('今日已完成必应搜索');
+            if (state.searchCur >= SEARCH_MAX) {
+                log(`今日必应搜索已拿满（${state.searchCur}/${SEARCH_MAX}）`);
                 return;
             }
 
-            const query = await getHotQuery(new Set());
-            setBusyStatus(`搜索 ${shorten(query, 14)}`);
-            log(`必应搜索：搜索「${shorten(query, 18)}」`);
+            const used = new Set();
+            while (state.running && state.searchCount < SEARCH_LIMIT && state.searchCur < SEARCH_MAX) {
+                if (state.manualPaused) await waitWhilePaused();
+                const query = await getHotQuery(used);
+                used.add(query);
+                setBusyStatus(`搜索 ${state.searchCount + 1}/${SEARCH_LIMIT}`);
+                log(`必应搜索 ${state.searchCount + 1}/${SEARCH_LIMIT}：${shorten(query, 18)}`);
 
-            const ok = await doSearch(query);
-            if (!ok) {
-                log('搜索上报未被接受（请确认已登录 cn.bing.com）');
-                return;
+                const ok = await doSearch(query);
+                if (!ok) {
+                    log('搜索上报未被接受（请确认已登录 cn.bing.com）');
+                    break;
+                }
+
+                state.searchCount = Math.min(SEARCH_LIMIT, state.searchCount + 1);
+                state.searchCur = Math.min(SEARCH_MAX, state.searchCur + SEARCH_STEP);
+                state.searchDone = state.searchCur >= SEARCH_MAX;
+                render();
+                saveProgress();
+                log(`搜索进度：${state.searchCur}/${SEARCH_MAX} 积分`);
+
+                if (state.searchCur >= SEARCH_MAX) break;
+                await waitTick(nextSearchDelay(), '搜索间隔', () => !state.running);
             }
 
-            state.searchDone = true;
-            state.searchCur = 3;
-            state.searchMax = 3;
-            render();
-            saveProgress();
-            log('必应搜索已完成（今日 3/3 积分）');
-            await updateData({ quiet: true });
+            if (state.searchCur >= SEARCH_MAX) log('必应搜索已完成（今日 60/60 积分）');
+            else if (!state.running) log(`搜索已停止：${state.searchCur}/${SEARCH_MAX} 积分`);
         } catch (e) {
             log(`搜索流程异常：${e.message}`);
         } finally {
             state.running = false;
-            nodes.btnSearch.innerHTML = '<span>🔍 搜索</span>';
+            applyActionState();
             setStatus('就绪');
             updateAllButton();
+            updateData({ quiet: true });
         }
     }
 
@@ -1991,35 +2073,28 @@
         // 模拟真实浏览：先停留一会儿再交卷
         await sleep(randomRange(900, 2400));
 
-        const rounds = readRounds(promo);
-        let accepted = false;
-        for (let i = 0; i < rounds; i++) {
-            if (i > 0) {
-                log(`阅读任务继续：第 ${i + 1}/${rounds} 次`);
-                await sleep(randomRange(1800, 3600));
-            }
-            const ok = await submitPromo(promo, token);
-            accepted = accepted || ok;
-            if (!ok) break;
-        }
+        const accepted = await submitPromo(promo, token);
 
         // 通道 4：访问目标页（部分 urlreward 卡需要）
         if (promo.destination) {
-            accepted = (await visitDestination(promo.destination)) || accepted;
+            return (await visitDestination(promo.destination)) || accepted;
         }
-
         return accepted;
     }
 
     async function runPromo() {
         if (state.busy.promo) return;
+        if (!state.loaded) {
+            log('账户信息尚未读取完成，请稍候');
+            return;
+        }
         if (state.busyCount > 0 && !state.allRunning) {
             log('请等待当前任务完成');
             return;
         }
 
         state.busy.promo = true;
-        nodes.btnPromo.disabled = true;
+        applyActionState();
         markBusy(1);
 
         try {
@@ -2068,7 +2143,70 @@
             log(`任务流程异常：${e.message}`);
         } finally {
             state.busy.promo = false;
-            nodes.btnPromo.disabled = false;
+            applyActionState();
+            markBusy(-1);
+            setStatus('就绪');
+        }
+    }
+
+    // ========== 阅读任务 ==========
+    async function runReading() {
+        if (state.busy.read) return;
+        if (!state.loaded) {
+            log('账户信息尚未读取完成，请稍候');
+            return;
+        }
+        if (state.busyCount > 0 && !state.allRunning) {
+            log('请等待当前任务完成');
+            return;
+        }
+
+        state.busy.read = true;
+        applyActionState();
+        markBusy(1);
+
+        try {
+            await waitWhilePaused();
+            await updateData({ quiet: true });
+
+            const pending = state.readingPromos.filter(p => !p.complete);
+            if (!pending.length) {
+                log(`阅读任务已完成（${state.readingCur}/${state.readingMax}）`);
+                return;
+            }
+
+            let token = '';
+            try { token = await getVerificationToken(); } catch (e) { }
+
+            let ok = 0;
+            for (const promo of pending) {
+                const rounds = readRounds(promo);
+                log(`阅读 ${shorten(promo.title, 20)}（${promo.progress || 0}/${promo.max || 30}）`);
+
+                for (let i = 0; i < rounds; i++) {
+                    if (state.manualPaused) await waitWhilePaused();
+                    setBusyStatus(`阅读 ${i + 1}/${rounds}：${shorten(promo.title, 12)}`);
+
+                    const accepted = await submitPromo(promo, token);
+                    if (!accepted) {
+                        log(`阅读上报未被接受：${shorten(promo.title, 16)}`);
+                        break;
+                    }
+                    ok++;
+                    if (i < rounds - 1) await waitTick(nextTaskDelay(), '阅读间隔');
+                }
+            }
+
+            setStatus('核对阅读结果');
+            log(`阅读处理完成 ${ok} 次，正在核对...`);
+            await sleep(3000);
+            await updateData({ quiet: true });
+            log(`阅读状态已刷新：${state.readingCur}/${state.readingMax}`);
+        } catch (e) {
+            log(`阅读流程异常：${e.message}`);
+        } finally {
+            state.busy.read = false;
+            applyActionState();
             markBusy(-1);
             setStatus('就绪');
         }
@@ -2077,8 +2215,12 @@
     // ========== 打卡 ==========
     async function runCheckin() {
         if (state.busy.sign) return;
+        if (!state.loaded) {
+            log('账户信息尚未读取完成，请稍候');
+            return;
+        }
         state.busy.sign = true;
-        nodes.btnSign.disabled = true;
+        applyActionState();
         markBusy(1);
 
         try {
@@ -2153,7 +2295,7 @@
             log(`打卡流程异常：${e.message}`);
         } finally {
             state.busy.sign = false;
-            nodes.btnSign.disabled = false;
+            applyActionState();
             markBusy(-1);
             setStatus('就绪');
         }
@@ -2178,7 +2320,7 @@
                     </div>
                 </div>
                 <div class="mr-set-group">
-                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">打卡 / 任务通用</span></div>
+                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">打卡 / 任务 / 阅读通用</span></div>
                     <div class="mr-presets" data-group="preset">
                         <button data-val="fast"><b>快速</b><small>任务 1.2–2.5s</small></button>
                         <button data-val="recommended"><b>推荐</b><small>任务 2–4s</small></button>
@@ -2192,17 +2334,18 @@
                         <button id="mr-set-reauth" class="mr-set-ghost">重新授权</button>
                     </div>
                 </div>
+                <div class="mr-set-actions">
+                    <button id="mr-set-save" class="mr-set-primary">保存设置</button>
+                </div>
                 <div class="mr-set-group">
-                    <div class="mr-set-title">关于</div>
-                    <div class="mr-version-row">
-                        <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.7</a>
-                        <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
+                    <div class="mr-about-row">
+                        <div class="mr-set-title">关于</div>
+                        <div class="mr-version-row">
+                            <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.8</a>
+                            <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
+                        </div>
                     </div>
                     <div class="mr-set-note" id="mr-update-status"></div>
-                </div>
-                <div class="mr-set-actions">
-                    <button id="mr-set-reset" class="mr-set-ghost">恢复默认</button>
-                    <button id="mr-set-save" class="mr-set-primary">保存设置</button>
                 </div>
                 <div class="mr-reward">
                     <div class="mr-reward-tip">❤️ 免费应用 · 自愿赞助 · 感谢支持</div>
@@ -2224,7 +2367,7 @@
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.7';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.8';
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     const updateBtnEl = settingsMask.querySelector('#mr-set-update');
@@ -2359,11 +2502,6 @@
         });
     });
 
-    settingsMask.querySelector('#mr-set-reset').onclick = () => {
-        draftSettings = { ...DEFAULT_SETTINGS };
-        syncSettingsUI();
-    };
-
     settingsMask.querySelector('#mr-set-save').onclick = () => {
         settings = { ...DEFAULT_SETTINGS, ...draftSettings };
         if (!PRESETS[settings.preset]) settings.preset = 'recommended';
@@ -2390,9 +2528,14 @@
 
     nodes.btnSearch.onclick = runSearch;
     nodes.btnPromo.onclick = runPromo;
+    nodes.btnRead.onclick = runReading;
     nodes.btnSign.onclick = runCheckin;
 
     nodes.btnAll.onclick = async () => {
+        if (!state.loaded) {
+            log('账户信息尚未读取完成，请稍候');
+            return;
+        }
         if (state.manualPaused || state.running || state.allRunning || state.busyCount > 0) {
             setManualPause(!state.manualPaused);
             return;
@@ -2404,8 +2547,9 @@
             // 只执行当前未完成且可获得积分的栏目，顺序随机，模拟真人操作
             const tasks = [];
             if (state.checkinMax === 0 || state.checkinCur < state.checkinMax) tasks.push({ name: '打卡', run: runCheckin });
-            if (!state.searchDone) tasks.push({ name: '搜索', run: runSearch });
+            if (state.searchCur < SEARCH_MAX) tasks.push({ name: '搜索', run: runSearch });
             if (state.promos.some(p => isPromoEligible(p))) tasks.push({ name: '任务', run: runPromo });
+            if (state.readingPromos.some(p => isPromoEligible(p))) tasks.push({ name: '阅读', run: runReading });
             shuffle(tasks);
             if (!tasks.length) {
                 log('今日可获得的积分任务均已完成');
@@ -2431,7 +2575,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.7');
+        log('脚本就绪 v1.2.8');
 
         await updateData({ quiet: true });
 
