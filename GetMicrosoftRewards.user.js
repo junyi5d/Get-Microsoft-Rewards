@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.8
+// @version      1.2.9
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -144,7 +144,7 @@
         checkinMax: 0,
         checkinPromos: [],
         searchCur: 0,
-        searchMax: 60,
+        searchMax: 0,
         searchCount: 0,
         searchDone: false,
         promos: [],
@@ -167,9 +167,12 @@
         authShown: false
     };
 
-    const SEARCH_MAX = 60;
-    const SEARCH_STEP = 3;
-    const SEARCH_LIMIT = SEARCH_MAX / SEARCH_STEP;
+    const SEARCH_MAX = 60;          // 全局默认上限（金牌 / 等级 3），仅作兜底
+    const SEARCH_STEP = 3;          // 每次必应搜索获得的积分
+    // 必应搜索每日积分上限（每次搜索 3 积分）：会员 15 / 银牌 30 / 金牌 60
+    const SEARCH_CAP_BY_LEVEL = { 1: 15, 2: 30, 3: 60 };
+    // 当日搜索次数上限 = 当日积分上限 / 每次积分
+    function searchLimit() { return Math.max(1, Math.floor((state.searchMax || SEARCH_MAX) / SEARCH_STEP)); }
 
     // ========== 进度保存/恢复 ==========
     function saveProgress() {
@@ -183,10 +186,9 @@
             const data = JSON.parse(raw);
             if (data.date !== getDateHyphen()) return;
             const count = data.searchCount !== undefined ? Number(data.searchCount) : (data.searchDone ? 1 : 0);
-            state.searchCount = clamp(Number(count) || 0, 0, SEARCH_LIMIT);
-            state.searchCur = state.searchCount * SEARCH_STEP;
-            state.searchMax = SEARCH_MAX;
-            state.searchDone = state.searchCur >= SEARCH_MAX;
+            // 仅恢复今日已搜索次数，作为 updateData 兜底；积分上限等官方数据到达后再确定，
+            // 骨架阶段保持 0/0，避免先显示满进度
+            state.searchCount = clamp(Number(count) || 0, 0, Math.floor(SEARCH_MAX / SEARCH_STEP));
         } catch (e) { }
     }
 
@@ -481,6 +483,7 @@
         }
         #mr-settings-mask.mr-hidden { display: none !important; }
         #mr-settings-mask * { box-sizing: border-box; }
+        #mr-settings button, #mr-settings a { cursor: pointer; }
         #mr-settings {
             width: 330px; max-width: 100%;
             background: var(--mr-bg, #fff);
@@ -521,7 +524,7 @@
         .mr-presets button small { display: block; font-size: 9px; color: #98a2b3; margin-top: 2px; }
         .mr-check { display: flex; align-items: center; gap: 7px; font-size: 11px; color: #475467; cursor: pointer; }
         .mr-check input { width: 14px; height: 14px; accent-color: #0f6cbd; }
-        .mr-set-actions { display: flex; gap: 8px; margin-top: 4px; }
+        .mr-set-actions { display: flex; gap: 8px; margin-top: 4px; margin-bottom: 14px; }
         .mr-set-actions button { flex: 1; height: 34px; border-radius: 9px; font-size: 12px; font-weight: 500; }
         .mr-set-ghost { background: #f3f5f8; border: 1px solid #e3e8ee; color: #475467; }
         .mr-set-ghost:hover { background: #eaedf2; }
@@ -742,11 +745,11 @@
             </div>
 
             <div class="mr-metric" id="mr-checkin-wrap">
-                <div class="mr-metric-top"><span>打卡任务</span><span id="mr-checkin">0/0</span></div>
+                <div class="mr-metric-top"><span>每日活动</span><span id="mr-checkin">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill orange" id="mr-checkin-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-search-wrap">
-                <div class="mr-metric-top"><span>必应搜索</span><span id="mr-search">0/60</span></div>
+                <div class="mr-metric-top"><span>必应搜索</span><span id="mr-search">0/0</span></div>
                 <div class="mr-track"><i class="mr-fill" id="mr-search-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-promo-wrap">
@@ -768,14 +771,14 @@
             </div>
 
             <div id="mr-auth" class="mr-hidden">
-                <div class="mr-auth-title">打卡需要微软授权</div>
+                <div class="mr-auth-title">每日活动需要微软授权</div>
                 <button class="mr-auth-link" id="mr-auth-link">获取授权码</button>
                 <input type="text" id="mr-auth-in" placeholder="粘贴跳转后的完整 URL">
                 <button class="mr-auth-save" id="mr-auth-save">保存授权码</button>
             </div>
 
             <div id="mr-actions">
-                <button class="mr-btn" id="btn-sign">${ICONS.check}<span>打卡</span></button>
+                <button class="mr-btn" id="btn-sign">${ICONS.check}<span>每日</span></button>
                 <button class="mr-btn" id="btn-search">${ICONS.search}<span>搜索</span></button>
                 <button class="mr-btn" id="btn-promo">${ICONS.target}<span>任务</span></button>
                 <button class="mr-btn" id="btn-read">📖<span>阅读</span></button>
@@ -1002,7 +1005,7 @@
         nodes.panel.classList.remove('collapsed');
         nodes.boxAuth.classList.remove('mr-hidden');
         if (!state.authShown) {
-            log('请先获取并保存微软授权码（打卡需要）');
+            log('请先获取并保存微软授权码（每日活动需要）');
             state.authShown = true;
         }
     }
@@ -1680,13 +1683,17 @@
                 if (dapi && dapi.balance) state.points = dapi.balance;
                 else if (typeof user.availablePoints === 'number') state.points = user.availablePoints;
 
-                // 必应搜索：每天最多 20 次、每次 3 分，共 60 积分；官方进度优先
+                // 必应搜索：每次 3 分，每日上限按等级区分（会员 15 / 银牌 30 / 金牌 60）；
+                // 优先取 DAPI 搜索卡的真实上限（offerId 形如 WW_search_global_NewLevelN），缺失时按等级查表
                 const searchCard = sourcePromos.find(p => /^WW_search_global/i.test(p.offerId || ''));
-                const officialSearch = searchCard ? clamp(Number(searchCard.progress) || 0, 0, SEARCH_MAX) : 0;
-                state.searchMax = SEARCH_MAX;
-                state.searchCur = clamp(Math.max(officialSearch, state.searchCount * SEARCH_STEP), 0, SEARCH_MAX);
-                state.searchCount = Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP));
-                state.searchDone = state.searchCur >= SEARCH_MAX;
+                const cardMax = searchCard ? Number(searchCard.max) || 0 : 0;
+                const capByLevel = SEARCH_CAP_BY_LEVEL[state.level] || SEARCH_MAX;
+                const searchMax = cardMax > 0 ? cardMax : capByLevel;
+                const officialSearch = searchCard ? clamp(Number(searchCard.progress) || 0, 0, searchMax) : 0;
+                state.searchMax = searchMax;
+                state.searchCur = clamp(Math.max(officialSearch, state.searchCount * SEARCH_STEP), 0, searchMax);
+                state.searchCount = Math.min(searchLimit(), Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP)));
+                state.searchDone = state.searchCur >= searchMax;
 
                 state.loaded = true;
                 render();
@@ -1695,7 +1702,7 @@
                     if (!dash.user && !sourcePromos.length && !dapi) {
                         log('未能读取任务数据，请确认已登录 rewards.bing.com 并完成微软授权');
                     } else {
-                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 打卡 ${state.checkinCur}/${state.checkinMax} · 搜索 ${state.searchCur}/${state.searchMax} · 任务 ${state.promosDone}/${state.promosTotal}${state.readingMax ? ` · 阅读 ${state.readingCur}/${state.readingMax}` : ''}`);
+                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 每日活动 ${state.checkinCur}/${state.checkinMax} · 搜索 ${state.searchCur}/${state.searchMax} · 任务 ${state.promosDone}/${state.promosTotal}${state.readingMax ? ` · 阅读 ${state.readingCur}/${state.readingMax}` : ''}`);
                     }
                 }
                 return true;
@@ -1789,8 +1796,8 @@
             log('请等待当前任务完成');
             return;
         }
-        if (state.searchCur >= SEARCH_MAX) {
-            log(`今日必应搜索已拿满（${state.searchCur}/${SEARCH_MAX}）`);
+        if (state.searchCur >= state.searchMax) {
+            log(`今日必应搜索已拿满（${state.searchCur}/${state.searchMax}）`);
             return;
         }
 
@@ -1801,18 +1808,20 @@
         try {
             await waitWhilePaused();
             await updateData({ quiet: true });
-            if (state.searchCur >= SEARCH_MAX) {
-                log(`今日必应搜索已拿满（${state.searchCur}/${SEARCH_MAX}）`);
+            const max = state.searchMax;
+            const limit = searchLimit();
+            if (state.searchCur >= max) {
+                log(`今日必应搜索已拿满（${state.searchCur}/${max}）`);
                 return;
             }
 
             const used = new Set();
-            while (state.running && state.searchCount < SEARCH_LIMIT && state.searchCur < SEARCH_MAX) {
+            while (state.running && state.searchCount < limit && state.searchCur < max) {
                 if (state.manualPaused) await waitWhilePaused();
                 const query = await getHotQuery(used);
                 used.add(query);
-                setBusyStatus(`搜索 ${state.searchCount + 1}/${SEARCH_LIMIT}`);
-                log(`必应搜索 ${state.searchCount + 1}/${SEARCH_LIMIT}：${shorten(query, 18)}`);
+                setBusyStatus(`搜索 ${state.searchCount + 1}/${limit}`);
+                log(`必应搜索 ${state.searchCount + 1}/${limit}：${shorten(query, 18)}`);
 
                 const ok = await doSearch(query);
                 if (!ok) {
@@ -1820,19 +1829,19 @@
                     break;
                 }
 
-                state.searchCount = Math.min(SEARCH_LIMIT, state.searchCount + 1);
-                state.searchCur = Math.min(SEARCH_MAX, state.searchCur + SEARCH_STEP);
-                state.searchDone = state.searchCur >= SEARCH_MAX;
+                state.searchCount = Math.min(limit, state.searchCount + 1);
+                state.searchCur = Math.min(max, state.searchCur + SEARCH_STEP);
+                state.searchDone = state.searchCur >= max;
                 render();
                 saveProgress();
-                log(`搜索进度：${state.searchCur}/${SEARCH_MAX} 积分`);
+                log(`搜索进度：${state.searchCur}/${max} 积分`);
 
-                if (state.searchCur >= SEARCH_MAX) break;
+                if (state.searchCur >= max) break;
                 await waitTick(nextSearchDelay(), '搜索间隔', () => !state.running);
             }
 
-            if (state.searchCur >= SEARCH_MAX) log('必应搜索已完成（今日 60/60 积分）');
-            else if (!state.running) log(`搜索已停止：${state.searchCur}/${SEARCH_MAX} 积分`);
+            if (state.searchCur >= state.searchMax) log(`必应搜索已完成（今日 ${state.searchCur}/${state.searchMax} 积分）`);
+            else if (!state.running) log(`搜索已停止：${state.searchCur}/${state.searchMax} 积分`);
         } catch (e) {
             log(`搜索流程异常：${e.message}`);
         } finally {
@@ -2212,7 +2221,88 @@
         }
     }
 
-    // ========== 打卡 ==========
+    // ========== 每日活动（打卡） ==========
+    // 领取每日签到积分（DAPI type 103，幂等：今日已领则返回 isDuplicate）
+    async function claimDailyCheckinPoints(quiet) {
+        try {
+            const res = await withTokenRetry(token => request({
+                method: 'POST',
+                url: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json; charset=utf-8',
+                    'User-Agent': CONFIG.ua.app,
+                    'X-Rewards-AppId': CONFIG.appId,
+                    'X-Rewards-IsMobile': 'true',
+                    'X-Rewards-Country': 'cn',
+                    'X-Rewards-Language': 'zh'
+                },
+                data: JSON.stringify({
+                    amount: 1,
+                    id: uuid().replace(/-/g, ''),
+                    type: 103,
+                    country: 'cn',
+                    channel: 'SAAndroid'
+                })
+            }));
+            const data = JSON.parse(res);
+            const activity = data.response && data.response.activity;
+            if (activity && (activity.p || activity.points)) {
+                if (!quiet) log(`每日活动签到成功，获得 ${activity.p || activity.points} 积分`);
+                state.signDone = true;
+                return true;
+            } else if (data.response && (data.response.isDuplicate || activity === null)) {
+                if (!quiet) log('今日已签到');
+            } else {
+                if (!quiet) log('每日签到请求已提交');
+            }
+            state.signDone = true;
+        } catch (e) {
+            if (!quiet) {
+                log(`每日签到失败：${e.message}`);
+                if (e.message === '未授权') showAuth();
+            }
+        }
+        return false;
+    }
+
+    // 一键全部执行末尾：把仍可领取的积分也领掉（每日签到 + 进度已满但未领取的卡片）
+    async function claimRemaining() {
+        try {
+            await waitWhilePaused();
+            setStatus('领取可领积分');
+            await updateData({ quiet: true });
+            log('正在领取可领取积分...');
+
+            // 1) 每日签到积分（幂等：若 runCheckin 因卡片已完成被跳过，这里补上）
+            let claimed = (await claimDailyCheckinPoints(true)) ? 1 : 0;
+
+            // 2) 进度已满但尚未标记完成的卡片（可领取未领取），补一次提交
+            let token = '';
+            try { token = await getVerificationToken(); } catch (e) { }
+            const all = [...state.checkinPromos, ...state.promos, ...state.readingPromos];
+            const claimable = all.filter(p => p && p.max > 0 && (p.progress || 0) >= p.max && !p.complete && !p.locked && !p.hidden);
+            for (let i = 0; i < claimable.length; i++) {
+                if (state.manualPaused) await waitWhilePaused();
+                const promo = claimable[i];
+                log(`领取 ${i + 1}/${claimable.length}：${shorten(promo.title, 20)}`);
+                const done = await completePromo(promo, token);
+                if (done) { claimed++; log(`已领取：${shorten(promo.title, 20)}`); }
+                if (i < claimable.length - 1) await waitTick(nextTaskDelay(), '领取间隔');
+            }
+
+            if (claimed) {
+                await sleep(2500);
+                await updateData({ quiet: true });
+                log(`可领取积分处理完成，共 ${claimed} 项`);
+            } else {
+                log('没有剩余可领取的积分');
+            }
+        } catch (e) {
+            log(`领取可领积分异常：${e.message}`);
+        }
+    }
+
     async function runCheckin() {
         if (state.busy.sign) return;
         if (!state.loaded) {
@@ -2226,73 +2316,39 @@
         try {
             await waitWhilePaused();
             await updateData({ quiet: true });
-            setStatus('打卡中');
-            log('正在打卡（每日活动）...');
-            try {
-                const res = await withTokenRetry(token => request({
-                    method: 'POST',
-                    url: 'https://prod.rewardsplatform.microsoft.com/dapi/me/activities',
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                        'Content-Type': 'application/json; charset=utf-8',
-                        'User-Agent': CONFIG.ua.app,
-                        'X-Rewards-AppId': CONFIG.appId,
-                        'X-Rewards-IsMobile': 'true',
-                        'X-Rewards-Country': 'cn',
-                        'X-Rewards-Language': 'zh'
-                    },
-                    data: JSON.stringify({
-                        amount: 1,
-                        id: uuid().replace(/-/g, ''),
-                        type: 103,
-                        country: 'cn',
-                        channel: 'SAAndroid'
-                    })
-                }));
-                const data = JSON.parse(res);
-                const activity = data.response && data.response.activity;
-                if (activity && (activity.p || activity.points)) {
-                    log(`每日打卡成功，获得 ${activity.p || activity.points} 积分`);
-                } else if (data.response && (data.response.isDuplicate || activity === null)) {
-                    log('今日已打卡');
-                } else {
-                    log('每日打卡请求已提交');
-                }
-                state.signDone = true;
-            } catch (e) {
-                log(`每日打卡失败：${e.message}`);
-                if (e.message === '未授权') showAuth();
-            }
+            setStatus('每日活动中');
+            log('正在执行每日活动...');
+            await claimDailyCheckinPoints();
 
             // 每日活动：已完成的直接计入进度，只对未完成的卡片执行
             const pending = state.checkinPromos.filter(p => !p.complete);
             if (!pending.length) {
-                log(`今日打卡任务已完成（${state.checkinCur}/${state.checkinMax}）`);
+                log(`今日每日活动已完成（${state.checkinCur}/${state.checkinMax}）`);
             } else {
-                log(`正在打卡：${pending.length} 个每日活动`);
+                log(`待完成：${pending.length} 个每日活动`);
                 let token = '';
                 try { token = await getVerificationToken(); } catch (e) { }
                 let ok = 0;
                 for (let i = 0; i < pending.length; i++) {
                     if (state.manualPaused) await waitWhilePaused();
                     const promo = pending[i];
-                    setBusyStatus(`打卡 ${i + 1}/${pending.length}：${shorten(promo.title, 12)}`);
-                    log(`打卡 ${i + 1}/${pending.length}：${shorten(promo.title, 20)}`);
+                    setBusyStatus(`每日活动 ${i + 1}/${pending.length}：${shorten(promo.title, 12)}`);
+                    log(`每日活动 ${i + 1}/${pending.length}：${shorten(promo.title, 20)}`);
                     const done = await completePromo(promo, token);
                     if (done) ok++;
                     log(done ? `已提交：${shorten(promo.title, 20)}` : `未能完成：${shorten(promo.title, 20)}`);
-                    if (i < pending.length - 1) await waitTick(nextTaskDelay(), '打卡间隔');
+                    if (i < pending.length - 1) await waitTick(nextTaskDelay(), '每日活动间隔');
                 }
-                log(`打卡处理完成 ${ok}/${pending.length}`);
+                log(`每日活动处理完成 ${ok}/${pending.length}`);
             }
 
-            setStatus('核对打卡结果');
+            setStatus('核对每日活动');
             await sleep(3000);
             await updateData({ quiet: true });
-            if (state.checkinMax > 0) log(`打卡状态已刷新：${state.checkinCur}/${state.checkinMax}`);
-            else log('每日打卡完成（未检测到连续打卡卡片）');
+            if (state.checkinMax > 0) log(`每日活动状态已刷新：${state.checkinCur}/${state.checkinMax}`);
+            else log('每日活动完成（未检测到连续打卡卡片）');
         } catch (e) {
-            log(`打卡流程异常：${e.message}`);
+            log(`每日活动流程异常：${e.message}`);
         } finally {
             state.busy.sign = false;
             applyActionState();
@@ -2320,7 +2376,7 @@
                     </div>
                 </div>
                 <div class="mr-set-group">
-                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">打卡 / 任务 / 阅读通用</span></div>
+                    <div class="mr-set-title">任务间隔 <span class="mr-set-hint">每日活动 / 任务 / 阅读通用</span></div>
                     <div class="mr-presets" data-group="preset">
                         <button data-val="fast"><b>快速</b><small>任务 1.2–2.5s</small></button>
                         <button data-val="recommended"><b>推荐</b><small>任务 2–4s</small></button>
@@ -2341,7 +2397,7 @@
                     <div class="mr-about-row">
                         <div class="mr-set-title">关于</div>
                         <div class="mr-version-row">
-                            <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.8</a>
+                            <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.9</a>
                             <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
                         </div>
                     </div>
@@ -2367,7 +2423,7 @@
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.8';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.9';
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     const updateBtnEl = settingsMask.querySelector('#mr-set-update');
@@ -2546,22 +2602,24 @@
             await waitWhilePaused();
             // 只执行当前未完成且可获得积分的栏目，顺序随机，模拟真人操作
             const tasks = [];
-            if (state.checkinMax === 0 || state.checkinCur < state.checkinMax) tasks.push({ name: '打卡', run: runCheckin });
-            if (state.searchCur < SEARCH_MAX) tasks.push({ name: '搜索', run: runSearch });
+            if (state.checkinMax === 0 || state.checkinCur < state.checkinMax) tasks.push({ name: '每日活动', run: runCheckin });
+            if (state.searchCur < state.searchMax) tasks.push({ name: '搜索', run: runSearch });
             if (state.promos.some(p => isPromoEligible(p))) tasks.push({ name: '任务', run: runPromo });
             if (state.readingPromos.some(p => isPromoEligible(p))) tasks.push({ name: '阅读', run: runReading });
             shuffle(tasks);
-            if (!tasks.length) {
+            if (tasks.length) {
+                log(`一键执行开始：${tasks.map(t => t.name).join(' → ')}`);
+                for (let i = 0; i < tasks.length; i++) {
+                    await waitWhilePaused();
+                    if (i > 0) await waitTick(nextTaskDelay(), '切换任务');
+                    log(`一键任务 ${i + 1}/${tasks.length}：${tasks[i].name}`);
+                    await tasks[i].run();
+                }
+            } else {
                 log('今日可获得的积分任务均已完成');
-                return;
             }
-            log(`一键执行开始：${tasks.map(t => t.name).join(' → ')}`);
-            for (let i = 0; i < tasks.length; i++) {
-                await waitWhilePaused();
-                if (i > 0) await waitTick(nextTaskDelay(), '切换任务');
-                log(`一键任务 ${i + 1}/${tasks.length}：${tasks[i].name}`);
-                await tasks[i].run();
-            }
+            // 全部任务结束后，把仍可领取的积分（每日签到 + 进度已满未领取的卡片）也领取掉
+            await claimRemaining();
             log('一键执行结束');
         } finally {
             state.allRunning = false;
