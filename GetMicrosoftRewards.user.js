@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.4
-// @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索连续打卡与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
+// @version      1.2.5
+// @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
 // @match        https://www.bing.com/*
@@ -145,7 +145,7 @@
         checkinMax: 0,
         checkinPromos: [],
         searchCur: 0,
-        searchMax: 1,
+        searchMax: 3,
         searchDone: false,
         promos: [],
         promosTotal: 0,
@@ -178,7 +178,7 @@
             if (data.date !== getDateHyphen()) return;
             const done = data.searchDone !== undefined ? !!data.searchDone : Number(data.searchCount) > 0;
             state.searchDone = done;
-            state.searchCur = done ? 1 : 0;
+            state.searchCur = done ? 3 : 0;
         } catch (e) { }
     }
 
@@ -541,6 +541,9 @@
         .mr-set-about a { font-size: 12px; font-weight: 600; color: #0f6cbd; text-decoration: none; }
         .mr-set-about a:hover { text-decoration: underline; }
         .mr-set-about button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
+        #mr-reward-box { margin-top: 10px; text-align: center; }
+        #mr-reward-box img { display: block; width: 180px; height: 180px; margin: 0 auto 7px; border-radius: 8px; background: #fff; }
+        #mr-reward-box span { font-size: 11px; color: #475467; }
         #mr-auth-status { font-size: 11px; color: #98a2b3; }
         #mr-auth-status.ok { color: #107c10; }
         .mr-set-note { font-size: 10px; line-height: 1.5; color: #98a2b3; margin-top: 6px; }
@@ -722,7 +725,7 @@
                 <div class="mr-track"><i class="mr-fill orange" id="mr-checkin-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-search-wrap">
-                <div class="mr-metric-top"><span>必应搜索连续打卡</span><span id="mr-search">0/1</span></div>
+                <div class="mr-metric-top"><span>必应搜索</span><span id="mr-search">0/3</span></div>
                 <div class="mr-track"><i class="mr-fill" id="mr-search-bar"></i></div>
             </div>
             <div class="mr-metric" id="mr-promo-wrap">
@@ -1047,9 +1050,9 @@
     // ========== 数据获取（rewards.bing.com/dashboard + /earn） ==========
     /*
      * 自动化基准（对照 rewards.bing.com/earn 的任务分类）：
-     * 1. 打卡任务        → 每日连续打卡（DAPI type 103）+ 页面连续打卡链接（跳过 App）
-     * 2. 必应搜索连续打卡 → 每天随机搜索 1 次
-     * 3. 日常任务        → 测验 / 投票卡片，按可完成与已完成数量统计
+     * 1. 打卡任务        → 今日每日活动（DailySet）+ DAPI 每日打卡（type 103）
+     * 2. 必应搜索 → 每天随机搜索 1 次
+     * 3. 日常任务        → 官方日常任务积分进度；阅读赚分等可执行任务不计入该栏目
      * 4. 连续打卡 / 升级里程碑 → 随对应行为自动累计，不参与一键执行
      * 5. App / 移动端 / Xbox / 邀请 → 无法由网页脚本完成，直接跳过
      */
@@ -1532,6 +1535,17 @@
         }
     }
 
+    // 面板统一按积分统计；已完成卡片缺少进度字段时按满积分计入
+    function sumPromoPoints(promos, fallbackMax) {
+        return promos.reduce((sum, p) => {
+            const max = Number(p.max) > 0 ? Number(p.max) : (Number(p.points) > 0 ? Number(p.points) : fallbackMax);
+            const cur = p.complete ? max : clamp(Number(p.progress) || 0, 0, max);
+            sum.done += cur;
+            sum.total += max;
+            return sum;
+        }, { done: 0, total: 0 });
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1539,6 +1553,17 @@
             if (firstLoad) setBusyStatus('正在读取账户信息…');
             try {
                 const [dash, dapi] = await Promise.all([fetchDashboard(), fetchDapiOverview()]);
+
+                // DAPI 继续提供权威状态与积分；同 offerId 的 HTML 中文标题只用于显示和日志
+                const chineseTitles = new Map();
+                for (const p of dash.promos) {
+                    if (p && p.offerId && /[\u3400-\u9fff]/.test(p.title || '') && !chineseTitles.has(p.offerId)) {
+                        chineseTitles.set(p.offerId, p.title);
+                    }
+                }
+                const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, title: chineseTitles.get(p.offerId) } : p;
+                if (dapi && dapi.promos) dapi.promos = dapi.promos.map(localizeTitle);
+                dash.promos = dash.promos.map(localizeTitle);
 
                 // 账户信息以 OAuth(DAPI) 为准；未授权 / DAPI 失败时才回退到页面(cookie)解析
                 let sourcePromos;
@@ -1572,28 +1597,31 @@
                 let checkinPromos = allPromos.filter(p => isDailySetPromo(p) && !isFuturePromo(p) && !isNonWebTask(p));
                 if (!checkinPromos.length) checkinPromos = allPromos.filter(isCheckinPromo);
                 state.checkinPromos = checkinPromos;
-                state.checkinMax = checkinPromos.length;
-                state.checkinCur = checkinPromos.filter(p => p.complete).length;
+                const checkinPoints = sumPromoPoints(checkinPromos, 10);
+                state.checkinMax = checkinPoints.total;
+                state.checkinCur = checkinPoints.done;
 
-                // 日常任务：排除每日活动、元数据/抽奖/App、Edge 浏览与不可自动完成项
+                // 日常任务：保留可执行任务，但阅读赚分不属于官方「日常任务」的 20 积分进度
                 const autoPromos = allPromos.filter(p => !isDailySetPromo(p) && !isNoisePromo(p) && !isEdgeBrowse(p) && !isNonAutoTask(p));
+                const dailyTaskPromos = autoPromos.filter(p => !/readarticle|msnreadearn/i.test(`${p.offerId} ${p.type}`));
+                const dailyPoints = sumPromoPoints(dailyTaskPromos, 5);
                 state.promos = autoPromos;
 
-                // 页面有「日常任务 x/y」时以页面为准（更完整），否则按可执行卡片统计
+                // 页面有官方「日常任务 x/y」积分时优先采用，否则按对应任务的积分汇总
                 const dailyDom = readDailyTaskFromDom();
                 if (dailyDom) {
                     state.promosTotal = dailyDom.total;
                     state.promosDone = dailyDom.done;
                 } else {
-                    state.promosTotal = autoPromos.length;
-                    state.promosDone = autoPromos.filter(p => p.complete).length;
+                    state.promosTotal = dailyPoints.total;
+                    state.promosDone = dailyPoints.done;
                 }
 
                 if (!opts.quiet || firstLoad) {
                     console.log('[MR counts] source=' + source,
                         'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
                         'auto=' + state.promosDone + '/' + state.promosTotal + (dailyDom ? '(dom)' : '') +
-                        ' raw=' + autoPromos.filter(p => p.complete).length + '/' + autoPromos.length);
+                        ' raw=' + dailyPoints.done + '/' + dailyPoints.total);
                 }
 
                 // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
@@ -1621,9 +1649,9 @@
                 if (dapi && dapi.balance) state.points = dapi.balance;
                 else if (typeof user.availablePoints === 'number') state.points = user.availablePoints;
 
-                // 必应搜索连续打卡：每天只执行 1 次
-                state.searchMax = 1;
-                state.searchCur = state.searchDone ? 1 : 0;
+                // 必应搜索：每天只执行 1 次
+                state.searchMax = 3;
+                state.searchCur = state.searchDone ? 3 : 0;
 
                 state.loaded = true;
                 render();
@@ -1722,7 +1750,7 @@
             return;
         }
         if (state.searchDone) {
-            log('今日已完成必应搜索连续打卡');
+            log('今日已完成必应搜索');
             return;
         }
 
@@ -1734,13 +1762,13 @@
             await waitWhilePaused();
             await updateData({ quiet: true });
             if (state.searchDone) {
-                log('今日已完成必应搜索连续打卡');
+                log('今日已完成必应搜索');
                 return;
             }
 
             const query = await getHotQuery(new Set());
             setBusyStatus(`搜索 ${shorten(query, 14)}`);
-            log(`必应搜索连续打卡：搜索「${shorten(query, 18)}」`);
+            log(`必应搜索：搜索「${shorten(query, 18)}」`);
 
             const ok = await doSearch(query);
             if (!ok) {
@@ -1749,11 +1777,11 @@
             }
 
             state.searchDone = true;
-            state.searchCur = 1;
-            state.searchMax = 1;
+            state.searchCur = 3;
+            state.searchMax = 3;
             render();
             saveProgress();
-            log('必应搜索连续打卡已完成（今日 1/1）');
+            log('必应搜索已完成（今日 3/3 积分）');
             await updateData({ quiet: true });
         } catch (e) {
             log(`搜索流程异常：${e.message}`);
@@ -2061,7 +2089,7 @@
             await waitWhilePaused();
             await updateData({ quiet: true });
             setStatus('打卡中');
-            log('正在打卡（每日连续打卡）...');
+            log('正在打卡（每日活动）...');
             try {
                 const res = await withTokenRetry(token => request({
                     method: 'POST',
@@ -2172,10 +2200,15 @@
                 <div class="mr-set-group">
                     <div class="mr-set-title">关于</div>
                     <div class="mr-set-about">
-                        <a id="mr-set-version" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.4</a>
+                        <a id="mr-set-version" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.5</a>
                         <button id="mr-set-update" class="mr-set-ghost">检查更新</button>
+                        <button id="mr-set-reward" class="mr-set-ghost" aria-expanded="false">赞赏</button>
                     </div>
                     <div class="mr-set-note" id="mr-update-status"></div>
+                    <div id="mr-reward-box" class="mr-hidden">
+                        <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/wechat-reward-qr.png" alt="微信赞赏码">
+                        <span>微信赞赏码</span>
+                    </div>
                 </div>
                 <div class="mr-set-actions">
                     <button id="mr-set-reset" class="mr-set-ghost">恢复默认</button>
@@ -2195,7 +2228,7 @@
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.4';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.5';
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     versionEl.textContent = 'v' + SCRIPT_VERSION;
@@ -2234,6 +2267,13 @@
             updateStatusEl.textContent = `检查更新失败：${e.message}`;
             updateStatusEl.className = 'mr-set-note warn';
         }
+    };
+
+    const rewardBox = settingsMask.querySelector('#mr-reward-box');
+    settingsMask.querySelector('#mr-set-reward').onclick = e => {
+        const show = rewardBox.classList.contains('mr-hidden');
+        rewardBox.classList.toggle('mr-hidden', !show);
+        e.currentTarget.setAttribute('aria-expanded', String(show));
     };
 
     function refreshAuthStatus() {
@@ -2397,7 +2437,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.4');
+        log('脚本就绪 v1.2.5');
 
         await updateData({ quiet: true });
 
