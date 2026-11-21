@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.5
-// @description  微软 Rewards 助手 - 自动完成每日打卡、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
+// @version      1.2.6
+// @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
 // @match        https://www.bing.com/*
@@ -14,7 +14,6 @@
 // @grant        GM_setValue
 // @grant        GM_getValue
 // @grant        GM_notification
-// @grant        GM_cookie
 // @grant        GM_registerMenuCommand
 // @grant        GM_openInTab
 // @grant        GM_log
@@ -161,8 +160,7 @@
         accessTokenExpiresAt: 0,
         updatingPromise: null,
         signDone: false,
-        authShown: false,
-        cookieWarned: false
+        authShown: false
     };
 
     // ========== 进度保存/恢复 ==========
@@ -183,25 +181,6 @@
     }
 
     // ========== 网络请求 ==========
-    function gmCookieList(details) {
-        return new Promise(resolve => {
-            try {
-                if (typeof GM_cookie === 'undefined' || !GM_cookie) return resolve([]);
-                const done = cookies => resolve(Array.isArray(cookies) ? cookies : (cookies && cookies.cookies) || []);
-                if (typeof GM_cookie.list === 'function') {
-                    GM_cookie.list(details, done);
-                } else if (typeof GM_cookie === 'function') {
-                    GM_cookie('list', details, done);
-                } else {
-                    return resolve([]);
-                }
-                setTimeout(() => resolve([]), 3000);
-            } catch (e) {
-                resolve([]);
-            }
-        });
-    }
-
     async function request(options) {
         const retries = options.retries === undefined ? 2 : options.retries;
         const retryDelay = options.retryDelay || 1200;
@@ -537,12 +516,36 @@
         .mr-set-primary:hover { background: linear-gradient(135deg, #0d5da3, #2479c2); }
         .mr-set-auth { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
         .mr-set-auth button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
-        .mr-set-about { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .mr-set-about a { font-size: 12px; font-weight: 600; color: #0f6cbd; text-decoration: none; }
-        .mr-set-about a:hover { text-decoration: underline; }
-        .mr-set-about button { height: 28px; padding: 0 10px; border-radius: 8px; font-size: 11px; white-space: nowrap; }
-        #mr-reward-box { margin-top: 10px; text-align: center; }
-        #mr-reward-box img { display: block; width: 180px; height: 180px; margin: 0 auto 7px; border-radius: 8px; background: #fff; }
+        .mr-version-row { display: flex; align-items: center; gap: 8px; }
+        .mr-version-badge {
+            font-size: 12px; font-weight: 600;
+            color: #d14343; background: #fdecec; border: 1px solid #f8d7d7;
+            padding: 4px 11px; border-radius: 999px; text-decoration: none;
+        }
+        .mr-version-badge:hover { background: #fbdede; }
+        .mr-update-btn {
+            width: 29px; height: 29px; padding: 0; border-radius: 999px;
+            border: 1px solid #f8d7d7; background: #fdecec; color: #d14343;
+            font-size: 15px; line-height: 1;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .mr-update-btn:hover { background: #fbdede; }
+        .mr-update-btn.spin { animation: mr-spin .9s linear infinite; }
+        @keyframes mr-spin { to { transform: rotate(360deg); } }
+        .mr-set-note a { color: #d14343; font-weight: 600; text-decoration: none; }
+        .mr-set-note a:hover { text-decoration: underline; }
+        .mr-reward { margin-top: 14px; padding-top: 13px; border-top: 1px dashed #e3e8ee; text-align: center; }
+        .mr-reward-tip { font-size: 10px; color: #98a2b3; margin-bottom: 8px; }
+        .mr-reward-btn {
+            height: 30px; padding: 0 16px; border: 0; border-radius: 999px;
+            color: #fff; font-size: 11px; font-weight: 600;
+            background: linear-gradient(135deg, #ef6a4c, #f79b4a);
+            box-shadow: 0 4px 12px rgba(239, 106, 76, .28);
+        }
+        .mr-reward-btn:hover { filter: brightness(1.05); }
+        #mr-reward-box { margin-top: 10px; padding: 10px; border-radius: 12px; background: #fff; border: 1px solid #f2e4e4; }
+        #mr-reward-box.mr-hidden { display: none; }
+        #mr-reward-box img { display: block; width: 168px; height: 168px; margin: 0 auto 6px; border-radius: 8px; }
         #mr-reward-box span { font-size: 11px; color: #475467; }
         #mr-auth-status { font-size: 11px; color: #98a2b3; }
         #mr-auth-status.ok { color: #107c10; }
@@ -571,7 +574,9 @@
             .mr-seg button, .mr-presets button { background: #232a33; border-color: #30363d; color: #c9d1d9; }
             .mr-seg button.active, .mr-presets button.active { background: #14304a; border-color: #2b88d8; color: #6cb6ff; }
             .mr-set-ghost { background: #232a33; border-color: #30363d; color: #c9d1d9; }
-            .mr-set-about a { color: #58a6ff; }
+            .mr-version-badge { color: #ff8f8f; background: #3a2222; border-color: #5c3333; }
+            .mr-update-btn { color: #ff8f8f; background: #3a2222; border-color: #5c3333; }
+            #mr-reward-box { background: #ffffff; border-color: #5c3333; }
             .mr-check { color: #c9d1d9; }
             #mr-log-head { color: #8b949e; }
         }
@@ -924,17 +929,18 @@
     }
 
     function render() {
-        // 数据未到达时显示模糊骨架，不渲染真实数字与操作
-        nodes.widget.classList.toggle('mr-loading', !state.loaded);
+        // 数据未到达时显示模糊骨架，栏数与加载完成后保持一致
+        const loading = !state.loaded;
+        nodes.widget.classList.toggle('mr-loading', loading);
 
         const name = state.levelName;
         const icon = levelIcon(name, state.level);
         nodes.level.textContent = name ? `${icon} ${name}` : icon;
         nodes.level.title = name || '会员等级';
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
-        nodes.checkinWrap.classList.toggle('mr-hidden', state.checkinMax === 0);
-        nodes.searchWrap.classList.toggle('mr-hidden', state.searchMax === 0);
-        nodes.promoWrap.classList.toggle('mr-hidden', state.promosTotal === 0);
+        nodes.checkinWrap.classList.toggle('mr-hidden', !loading && state.checkinMax === 0);
+        nodes.searchWrap.classList.toggle('mr-hidden', !loading && state.searchMax === 0);
+        nodes.promoWrap.classList.toggle('mr-hidden', !loading && state.promosTotal === 0);
         setMetric(nodes.checkin, nodes.checkinBar, state.checkinCur, state.checkinMax);
         setMetric(nodes.search, nodes.searchBar, state.searchCur, state.searchMax);
         setMetric(nodes.promo, nodes.promoBar, state.promosDone, state.promosTotal);
@@ -1200,10 +1206,6 @@
                     useCookies: true
                 });
                 if (typeof html === 'string' && html) {
-                    if (!state.cookieWarned && /login\.live\.com|oauth20_|account\.live\.com/i.test(html)) {
-                        state.cookieWarned = true;
-                        log('未读取到 Rewards 登录态：请在篡改猴设置中切换为「高级」模式后重试');
-                    }
                     for (const raw of parseFlightPromos(html)) {
                         const promo = normalizePromo(raw);
                         if (promo) out.promos.push(promo);
@@ -1511,30 +1513,6 @@
         return false;
     }
 
-    // 从 Rewards 面板 DOM 精确读取「日常任务 x/y」（如 15/20）；读不到返回 null
-    function readDailyTaskFromDom() {
-        try {
-            if (!document.body || !document.createTreeWalker) return null;
-            const walker = document.createTreeWalker(document.body, 4 /* SHOW_TEXT */, null);
-            let node;
-            while ((node = walker.nextNode())) {
-                if (!node.nodeValue || node.nodeValue.trim() !== '日常任务') continue;
-                const host = node.parentElement;
-                if (!host || (host.closest && host.closest('#mr-panel, #mr-settings-mask, script, style'))) continue;
-                const scope = host.parentElement || host;
-                const m = String(scope.textContent || '').match(/日常任务[\s\S]{0,24}?(\d+)\s*\/\s*(\d+)/);
-                if (m) {
-                    const done = Number(m[1]);
-                    const total = Number(m[2]);
-                    if (total > 0 && done <= total) return { done, total };
-                }
-            }
-            return null;
-        } catch (e) {
-            return null;
-        }
-    }
-
     // 面板统一按积分统计；已完成卡片缺少进度字段时按满积分计入
     function sumPromoPoints(promos, fallbackMax) {
         return promos.reduce((sum, p) => {
@@ -1601,27 +1579,17 @@
                 state.checkinMax = checkinPoints.total;
                 state.checkinCur = checkinPoints.done;
 
-                // 日常任务：保留可执行任务，但阅读赚分不属于官方「日常任务」的 20 积分进度
+                // 日常任务：按实际读取到的任务汇总积分（不同账号任务数不同，阅读有积分也计入）
                 const autoPromos = allPromos.filter(p => !isDailySetPromo(p) && !isNoisePromo(p) && !isEdgeBrowse(p) && !isNonAutoTask(p));
-                const dailyTaskPromos = autoPromos.filter(p => !/readarticle|msnreadearn/i.test(`${p.offerId} ${p.type}`));
-                const dailyPoints = sumPromoPoints(dailyTaskPromos, 5);
+                const dailyPoints = sumPromoPoints(autoPromos, 5);
                 state.promos = autoPromos;
-
-                // 页面有官方「日常任务 x/y」积分时优先采用，否则按对应任务的积分汇总
-                const dailyDom = readDailyTaskFromDom();
-                if (dailyDom) {
-                    state.promosTotal = dailyDom.total;
-                    state.promosDone = dailyDom.done;
-                } else {
-                    state.promosTotal = dailyPoints.total;
-                    state.promosDone = dailyPoints.done;
-                }
+                state.promosTotal = dailyPoints.total;
+                state.promosDone = dailyPoints.done;
 
                 if (!opts.quiet || firstLoad) {
                     console.log('[MR counts] source=' + source,
                         'checkin=' + checkinPromos.map(p => `${p.offerId}${p.complete ? '(✓)' : ''}`).join(','),
-                        'auto=' + state.promosDone + '/' + state.promosTotal + (dailyDom ? '(dom)' : '') +
-                        ' raw=' + dailyPoints.done + '/' + dailyPoints.total);
+                        'auto=' + state.promosDone + '/' + state.promosTotal);
                 }
 
                 // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
@@ -2195,24 +2163,26 @@
                         <span id="mr-auth-status">授权状态：未授权</span>
                         <button id="mr-set-reauth" class="mr-set-ghost">重新授权</button>
                     </div>
-                    <div class="mr-set-note" id="mr-cookie-status">Cookie 读取：检测中…</div>
                 </div>
                 <div class="mr-set-group">
                     <div class="mr-set-title">关于</div>
-                    <div class="mr-set-about">
-                        <a id="mr-set-version" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.5</a>
-                        <button id="mr-set-update" class="mr-set-ghost">检查更新</button>
-                        <button id="mr-set-reward" class="mr-set-ghost" aria-expanded="false">赞赏</button>
+                    <div class="mr-version-row">
+                        <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.6</a>
+                        <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
                     </div>
                     <div class="mr-set-note" id="mr-update-status"></div>
-                    <div id="mr-reward-box" class="mr-hidden">
-                        <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/wechat-reward-qr.png" alt="微信赞赏码">
-                        <span>微信赞赏码</span>
-                    </div>
                 </div>
                 <div class="mr-set-actions">
                     <button id="mr-set-reset" class="mr-set-ghost">恢复默认</button>
                     <button id="mr-set-save" class="mr-set-primary">保存设置</button>
+                </div>
+                <div class="mr-reward">
+                    <div class="mr-reward-tip">❤️ 免费应用 · 自愿赞助 · 感谢支持</div>
+                    <button id="mr-reward-toggle" class="mr-reward-btn" aria-expanded="false">🎁 展开赞赏码</button>
+                    <div id="mr-reward-box" class="mr-hidden">
+                        <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/wechat-reward-qr.png" alt="微信赞赏码">
+                        <span>微信赞赏码</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -2222,15 +2192,14 @@
     let draftSettings = { ...settings };
 
     const authStatusEl = settingsMask.querySelector('#mr-auth-status');
-    const cookieStatusEl = settingsMask.querySelector('#mr-cookie-status');
-    let cookieChecked = false;
 
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.5';
+    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.6';
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
+    const updateBtnEl = settingsMask.querySelector('#mr-set-update');
     versionEl.textContent = 'v' + SCRIPT_VERSION;
     versionEl.href = REPO_URL;
 
@@ -2248,6 +2217,7 @@
     settingsMask.querySelector('#mr-set-update').onclick = async () => {
         updateStatusEl.className = 'mr-set-note';
         updateStatusEl.textContent = '正在检查更新…';
+        updateBtnEl.classList.add('spin');
         try {
             const text = await request({
                 url: `${RAW_URL}?_=${Date.now()}`,
@@ -2258,22 +2228,37 @@
             if (!m) throw new Error('无法解析版本号');
             const latest = m[1];
             if (compareVersion(latest, SCRIPT_VERSION) > 0) {
-                updateStatusEl.textContent = `发现新版本 v${latest}（当前 v${SCRIPT_VERSION}），点击版本号前往更新`;
+                updateStatusEl.innerHTML = `发现新版本 v${latest} · <a href="${RAW_URL}?t=${Date.now()}" target="_blank" rel="noopener">更新到 v${latest}</a>`;
                 updateStatusEl.className = 'mr-set-note warn';
+                updateStatusEl.querySelector('a').onclick = e => {
+                    e.preventDefault();
+                    openUpdatePage(RAW_URL);
+                };
             } else {
                 updateStatusEl.textContent = `已是最新版本 v${SCRIPT_VERSION}`;
             }
         } catch (e) {
             updateStatusEl.textContent = `检查更新失败：${e.message}`;
             updateStatusEl.className = 'mr-set-note warn';
+        } finally {
+            updateBtnEl.classList.remove('spin');
         }
     };
 
+    // 直接打开用户脚本地址，由篡改猴接管安装 / 更新
+    function openUpdatePage(url) {
+        const target = `${url}?t=${Date.now()}`;
+        if (typeof GM_openInTab === 'function') GM_openInTab(target, { active: true });
+        else window.open(target, '_blank');
+    }
+
     const rewardBox = settingsMask.querySelector('#mr-reward-box');
-    settingsMask.querySelector('#mr-set-reward').onclick = e => {
+    const rewardToggleEl = settingsMask.querySelector('#mr-reward-toggle');
+    rewardToggleEl.onclick = () => {
         const show = rewardBox.classList.contains('mr-hidden');
         rewardBox.classList.toggle('mr-hidden', !show);
-        e.currentTarget.setAttribute('aria-expanded', String(show));
+        rewardToggleEl.setAttribute('aria-expanded', String(show));
+        rewardToggleEl.textContent = show ? '🎁 收起赞赏码' : '🎁 展开赞赏码';
     };
 
     function refreshAuthStatus() {
@@ -2292,24 +2277,6 @@
         authStatusEl.className = ok ? 'ok' : '';
     }
 
-    async function refreshCookieStatus(force) {
-        if (cookieChecked && !force) return;
-        cookieChecked = true;
-        if (typeof GM_cookie === 'undefined' || !GM_cookie) {
-            cookieStatusEl.textContent = 'Cookie 读取：不可用，请在篡改猴设置中切换为「高级」模式';
-            cookieStatusEl.className = 'mr-set-note warn';
-            return;
-        }
-        const list = await gmCookieList({ url: 'https://rewards.bing.com/' });
-        if (list.length) {
-            cookieStatusEl.textContent = `Cookie 读取：可用（rewards ${list.length} 项）`;
-            cookieStatusEl.className = 'mr-set-note';
-        } else {
-            cookieStatusEl.textContent = 'Cookie 读取：接口可用，但未读取到 rewards Cookie，请确认已登录';
-            cookieStatusEl.className = 'mr-set-note warn';
-        }
-    }
-
     function syncSettingsUI() {
         settingsMask.querySelectorAll('[data-group]').forEach(group => {
             const key = group.getAttribute('data-group');
@@ -2323,7 +2290,6 @@
         draftSettings = { ...settings };
         syncSettingsUI();
         refreshAuthStatus();
-        refreshCookieStatus();
         settingsMask.classList.remove('mr-hidden');
     }
 
@@ -2437,7 +2403,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.5');
+        log('脚本就绪 v1.2.6');
 
         await updateData({ quiet: true });
 
