@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.9
+// @version      1.2.10
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -2429,7 +2429,7 @@
                     <div class="mr-about-row">
                         <div class="mr-set-title">关于</div>
                         <div class="mr-version-row">
-                            <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener">v1.2.9</a>
+                            <a id="mr-set-version" class="mr-version-badge" href="https://github.com/junyi5d/Get-Microsoft-Rewards" target="_blank" rel="noopener"></a>
                             <button id="mr-set-update" class="mr-update-btn" title="检查更新" aria-label="检查更新">↻</button>
                         </div>
                     </div>
@@ -2455,11 +2455,19 @@
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
-    const SCRIPT_VERSION = (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) || '1.2.9';
+    // 版本号直接取脚本自身元数据，升级 @version 后界面自动同步，无需改代码
+    const SCRIPT_VERSION = (() => {
+        if (typeof GM_info !== 'undefined' && GM_info) {
+            if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
+            const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
+            if (matched) return matched[1];
+        }
+        return '';
+    })();
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     const updateBtnEl = settingsMask.querySelector('#mr-set-update');
-    versionEl.textContent = 'v' + SCRIPT_VERSION;
+    versionEl.textContent = SCRIPT_VERSION ? 'v' + SCRIPT_VERSION : '版本未知';
     versionEl.href = REPO_URL;
 
     function compareVersion(a, b) {
@@ -2486,7 +2494,7 @@
             const m = String(text || '').match(/@version\s+([\d.]+)/);
             if (!m) throw new Error('无法解析版本号');
             const latest = m[1];
-            if (compareVersion(latest, SCRIPT_VERSION) > 0) {
+            if (compareVersion(latest, SCRIPT_VERSION || '0') > 0) {
                 updateStatusEl.innerHTML = `发现新版本 v${latest} · <a href="${RAW_URL}?t=${Date.now()}" target="_blank" rel="noopener">更新到 v${latest}</a>`;
                 updateStatusEl.className = 'mr-set-note warn';
                 updateStatusEl.querySelector('a').onclick = e => {

@@ -4,7 +4,7 @@
 
 **微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常 / 阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
 
-[![Version](https://img.shields.io/badge/version-1.2.9-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.2.10-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-v4.0+-orange.svg)](https://www.tampermonkey.net/)
 
