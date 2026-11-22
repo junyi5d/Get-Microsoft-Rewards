@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.10
+// @version      1.2.11
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -108,6 +108,16 @@
         s = Math.max(0, Math.ceil(s));
         return s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`;
     };
+
+    // 脚本版本号：直接读取脚本自身元数据，升级 @version 后界面与日志自动同步
+    const SCRIPT_VERSION = (() => {
+        if (typeof GM_info !== 'undefined' && GM_info) {
+            if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
+            const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
+            if (matched) return matched[1];
+        }
+        return '';
+    })();
 
     // ========== 设置 ==========
     function loadSettings() {
@@ -2456,14 +2466,6 @@
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
     const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
     // 版本号直接取脚本自身元数据，升级 @version 后界面自动同步，无需改代码
-    const SCRIPT_VERSION = (() => {
-        if (typeof GM_info !== 'undefined' && GM_info) {
-            if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
-            const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
-            if (matched) return matched[1];
-        }
-        return '';
-    })();
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');
     const updateBtnEl = settingsMask.querySelector('#mr-set-update');
@@ -2673,7 +2675,7 @@
         loadProgress();
         render();
         updateAllButton();
-        log('脚本就绪 v1.2.8');
+        log(`脚本就绪 v${SCRIPT_VERSION || '未知'}`);
 
         await updateData({ quiet: true });
 
