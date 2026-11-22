@@ -81,32 +81,30 @@
 
 ### 前置要求
 
-- 安装 [Tampermonkey](https://www.tampermonkey.net/) 或 [Violentmonkey](https://violentmonkey.github.io/) 浏览器扩展
+- 安装 [Tampermonkey](https://www.tampermonkey.net/) 浏览器扩展
+     - Chrome: https://chrome.google.com/webstore/detail/tampermonkey
+     - Edge: https://microsoftedge.microsoft.com/addons/detail/tampermonkey
+     - Firefox: https://addons.mozilla.org/firefox/addon/tampermonkey/
+   - **[Violentmonkey](https://violentmonkey.github.io/)**
 - Microsoft 账号（已注册 Microsoft Rewards）
 
 ### 安装步骤
 
-1. **安装脚本管理器**
-   - Chrome/Edge: [Tampermonkey](https://chromewebstore.google.com/detail/tampermonkey/dhdgffkkebhmkfjojejmpbldmpobfkfo)
-   - Firefox: [Tampermonkey](https://addons.mozilla.org/firefox/addon/tampermonkey/)
-
-2. **安装脚本**
+**安装脚本**
    - 点击安装（实际链接）：
      <https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js>
    - 脚本直链：
      <https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js>
    - 或手动复制 `GetMicrosoftRewards.user.js` 内容到 Tampermonkey 新建脚本
 
-3. **访问 Bing**
-   - 打开 <https://www.bing.com> 或 <https://rewards.bing.com>
-   - 页面左下角会出现礼盒图标 🎁（可在设置中改到右下角）
-
 ***
 
 ## 🎮 使用说明
 
 ### 基础使用
-
+**访问 Bing**
+   - 打开 <https://www.bing.com> 或 <https://rewards.bing.com>
+   - 页面左下角会出现礼盒图标 🎁（可在设置中改到右下角）
 1. **查看进度**
    - 点击礼盒图标展开面板（默认左下角）
    - 查看当前会员等级（如「金牌会员」）、积分、各项任务进度
