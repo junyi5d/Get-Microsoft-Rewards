@@ -263,9 +263,9 @@ const PRESETS = {
 
 ***
 
-## 💖 支持
+## 💖 赞赏支持
 
-如果这个项目对您有帮助，欢迎：
+如果这个工具对你有帮助，欢迎赞赏支持！
 
 - ⭐ Star [本仓库](https://github.com/junyi5d/Get-Microsoft-Rewards)
 - 🐛 [提交 Bug 报告](https://github.com/junyi5d/Get-Microsoft-Rewards/issues/new)
@@ -274,16 +274,11 @@ const PRESETS = {
 
 也可以在脚本「设置 → 保存设置下方 → 赞赏支持」中查看：
 
-<div align="center">
-  <img src="./assets/wechat-reward-qr.png" alt="微信赞赏码" width="180">
-  <div>微信赞赏码</div>
-</div>
-
-***
+---
 
 <div align="center">
 
-**Made with ❤️ by QingJ、junyi5d**
+*如果觉得好用，请给个 Star ⭐*
 
 [⬆ 回到顶部](#get-microsoft-rewards)
 
