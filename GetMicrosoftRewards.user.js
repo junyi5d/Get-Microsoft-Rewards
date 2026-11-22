@@ -148,6 +148,7 @@
         searchCount: 0,
         searchDone: false,
         promos: [],
+        allPromos: [],
         promosTotal: 0,
         promosDone: 0,
         readingPromos: [],
@@ -1582,6 +1583,22 @@
         }, { done: 0, total: 0 });
     }
 
+    // 原始 title 保留给任务识别；日志与状态只使用中文显示标题
+    function promoDisplayTitle(promo) {
+        if (!promo) return '奖励活动';
+        if (promo.displayTitle) return promo.displayTitle;
+        const title = String(promo.title || '').trim();
+        if (/[\u3400-\u9fff]/.test(title)) return title;
+        if (isDailySetPromo(promo)) {
+            const child = String(promo.offerId || '').match(/_Child(\d+)$/i);
+            return `每日活动${child ? ' ' + child[1] : ''}`;
+        }
+        if (isReadingPromo(promo)) return '阅读任务';
+        if (/^WW_search_global/i.test(promo.offerId || '')) return '必应搜索';
+        if (isCheckinPromo(promo)) return '每日签到';
+        return '奖励活动';
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1597,7 +1614,7 @@
                         chineseTitles.set(p.offerId, p.title);
                     }
                 }
-                const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, title: chineseTitles.get(p.offerId) } : p;
+                const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, displayTitle: chineseTitles.get(p.offerId) } : p;
                 if (dapi && dapi.promos) dapi.promos = dapi.promos.map(localizeTitle);
                 dash.promos = dash.promos.map(localizeTitle);
 
@@ -1619,7 +1636,7 @@
 
                 // 调试：分别打印两个来源 + 归类结果，便于定位数量偏差（首次加载必打，便于核对）
                 if (!opts.quiet || firstLoad) {
-                    const fmt = (p, src) => `[${src}|${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(p.title || '', 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`;
+                    const fmt = (p, src) => `[${src}|${p.offerId}|${p.type || ''}|${p.complete ? '✓' : '○'}] ${shorten(promoDisplayTitle(p), 24)}${p.max ? ` (${p.progress}/${p.max})` : ''}`;
                     const lines = [
                         ...(dapi && dapi.promos ? dapi.promos.map(p => fmt(p, 'DAPI')) : []),
                         ...dash.promos.map(p => fmt(p, 'HTML'))
@@ -1627,6 +1644,7 @@
                     if (lines.length) console.log('[MR promos]\n  ' + lines.slice(0, 80).join('\n  '));
                 }
 
+                state.allPromos = sourcePromos;
                 const allPromos = sourcePromos.filter(p => !p.hidden && !p.locked);
 
                 // 打卡 = 每日活动（今日 DailySet，每天重置）；识别不到时回退连续打卡类卡片
@@ -2127,15 +2145,15 @@
             for (let i = 0; i < tasks.length; i++) {
                 if (state.manualPaused) await waitWhilePaused();
                 const promo = tasks[i];
-                setBusyStatus(`任务 ${i + 1}/${tasks.length}：${shorten(promo.title, 14)}`);
-                log(`任务 ${i + 1}/${tasks.length}：${shorten(promo.title, 20)}`);
+                setBusyStatus(`任务 ${i + 1}/${tasks.length}：${shorten(promoDisplayTitle(promo), 14)}`);
+                log(`任务 ${i + 1}/${tasks.length}：${shorten(promoDisplayTitle(promo), 20)}`);
 
                 const done = await completePromo(promo, token);
                 if (done) {
                     ok++;
-                    log(`已提交：${shorten(promo.title, 20)}`);
+                    log(`已提交：${shorten(promoDisplayTitle(promo), 20)}`);
                 } else {
-                    log(`提交失败：${shorten(promo.title, 20)}`);
+                    log(`提交失败：${shorten(promoDisplayTitle(promo), 20)}`);
                 }
 
                 if (i < tasks.length - 1) {
@@ -2190,15 +2208,15 @@
             let ok = 0;
             for (const promo of pending) {
                 const rounds = readRounds(promo);
-                log(`阅读 ${shorten(promo.title, 20)}（${promo.progress || 0}/${promo.max || 30}）`);
+                log(`阅读 ${shorten(promoDisplayTitle(promo), 20)}（${promo.progress || 0}/${promo.max || 30}）`);
 
                 for (let i = 0; i < rounds; i++) {
                     if (state.manualPaused) await waitWhilePaused();
-                    setBusyStatus(`阅读 ${i + 1}/${rounds}：${shorten(promo.title, 12)}`);
+                    setBusyStatus(`阅读 ${i + 1}/${rounds}：${shorten(promoDisplayTitle(promo), 12)}`);
 
                     const accepted = await submitPromo(promo, token);
                     if (!accepted) {
-                        log(`阅读上报未被接受：${shorten(promo.title, 16)}`);
+                        log(`阅读上报未被接受：${shorten(promoDisplayTitle(promo), 16)}`);
                         break;
                     }
                     ok++;
@@ -2266,37 +2284,51 @@
         return false;
     }
 
-    // 一键全部执行末尾：把仍可领取的积分也领掉（每日签到 + 进度已满但未领取的卡片）
+    function getClaimablePromos() {
+        return state.allPromos.filter(p => p && p.max > 0 && (p.progress || 0) >= p.max
+            && !p.complete && !p.locked && !p.hidden && isPromoEligible(p));
+    }
+
+    // 一键全部执行末尾：扫描全部活动，领取后刷新并复查，避免漏掉未归类卡片
     async function claimRemaining() {
         try {
             await waitWhilePaused();
-            setStatus('领取可领积分');
-            await updateData({ quiet: true });
-            log('正在领取可领取积分...');
+            setStatus('检查待领取积分');
+            if (!await updateData({ quiet: true })) {
+                log('待领取积分检查失败：无法刷新活动数据');
+                return;
+            }
 
-            // 1) 每日签到积分（幂等：若 runCheckin 因卡片已完成被跳过，这里补上）
+            const claimable = getClaimablePromos();
+            log(`已检查全部 ${state.allPromos.length} 项活动，发现 ${claimable.length} 项待领取积分`);
+
+            // 每日签到接口幂等；卡片仅提交进度已满但尚未标记完成的项目
             let claimed = (await claimDailyCheckinPoints(true)) ? 1 : 0;
-
-            // 2) 进度已满但尚未标记完成的卡片（可领取未领取），补一次提交
             let token = '';
-            try { token = await getVerificationToken(); } catch (e) { }
-            const all = [...state.checkinPromos, ...state.promos, ...state.readingPromos];
-            const claimable = all.filter(p => p && p.max > 0 && (p.progress || 0) >= p.max && !p.complete && !p.locked && !p.hidden);
+            if (claimable.length) {
+                try { token = await getVerificationToken(); } catch (e) { }
+            }
             for (let i = 0; i < claimable.length; i++) {
                 if (state.manualPaused) await waitWhilePaused();
                 const promo = claimable[i];
-                log(`领取 ${i + 1}/${claimable.length}：${shorten(promo.title, 20)}`);
+                log(`领取 ${i + 1}/${claimable.length}：${shorten(promoDisplayTitle(promo), 20)}`);
                 const done = await completePromo(promo, token);
-                if (done) { claimed++; log(`已领取：${shorten(promo.title, 20)}`); }
+                if (done) { claimed++; log(`已提交领取：${shorten(promoDisplayTitle(promo), 20)}`); }
                 if (i < claimable.length - 1) await waitTick(nextTaskDelay(), '领取间隔');
             }
 
-            if (claimed) {
-                await sleep(2500);
-                await updateData({ quiet: true });
-                log(`可领取积分处理完成，共 ${claimed} 项`);
+            if (claimed || claimable.length) await sleep(2500);
+            setStatus('复查待领取积分');
+            if (!await updateData({ quiet: true })) {
+                log('积分领取已处理，但复查时无法刷新活动数据');
+                return;
+            }
+            const remaining = getClaimablePromos();
+            if (remaining.length) {
+                const names = remaining.slice(0, 3).map(p => shorten(promoDisplayTitle(p), 20)).join('、');
+                log(`领取后复查：仍有 ${remaining.length} 项待领取积分：${names}`);
             } else {
-                log('没有剩余可领取的积分');
+                log(`领取后复查：没有剩余待领取积分${claimed ? `（本次提交 ${claimed} 项）` : ''}`);
             }
         } catch (e) {
             log(`领取可领积分异常：${e.message}`);
@@ -2332,11 +2364,11 @@
                 for (let i = 0; i < pending.length; i++) {
                     if (state.manualPaused) await waitWhilePaused();
                     const promo = pending[i];
-                    setBusyStatus(`每日活动 ${i + 1}/${pending.length}：${shorten(promo.title, 12)}`);
-                    log(`每日活动 ${i + 1}/${pending.length}：${shorten(promo.title, 20)}`);
+                    setBusyStatus(`每日活动 ${i + 1}/${pending.length}：${shorten(promoDisplayTitle(promo), 12)}`);
+                    log(`每日活动 ${i + 1}/${pending.length}：${shorten(promoDisplayTitle(promo), 20)}`);
                     const done = await completePromo(promo, token);
                     if (done) ok++;
-                    log(done ? `已提交：${shorten(promo.title, 20)}` : `未能完成：${shorten(promo.title, 20)}`);
+                    log(done ? `已提交：${shorten(promoDisplayTitle(promo), 20)}` : `未能完成：${shorten(promoDisplayTitle(promo), 20)}`);
                     if (i < pending.length - 1) await waitTick(nextTaskDelay(), '每日活动间隔');
                 }
                 log(`每日活动处理完成 ${ok}/${pending.length}`);
@@ -2618,7 +2650,7 @@
             } else {
                 log('今日可获得的积分任务均已完成');
             }
-            // 全部任务结束后，把仍可领取的积分（每日签到 + 进度已满未领取的卡片）也领取掉
+            // 全部任务结束后，扫描全部活动并领取待领取积分，最后刷新复查
             await claimRemaining();
             log('一键执行结束');
         } finally {
