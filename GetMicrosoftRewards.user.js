@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.11
+// @version      1.2.12
 // @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -2449,7 +2449,7 @@
                     <div class="mr-reward-tip">❤️ 免费应用 · 自愿赞助 · 感谢支持</div>
                     <button id="mr-reward-toggle" class="mr-reward-btn" aria-expanded="false">🎁 赞赏支持</button>
                     <div id="mr-reward-box" class="mr-hidden">
-                        <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/wechat-reward-qr.png" alt="微信赞赏码">
+                        <img src="https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/assets/wechat-reward-qr.png" alt="微信赞赏码">
                         <span>微信赞赏码</span>
                     </div>
                 </div>

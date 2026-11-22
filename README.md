@@ -4,7 +4,7 @@
 
 **微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常 / 阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
 
-[![Version](https://img.shields.io/badge/version-1.2.11-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.2.12-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-v4.0+-orange.svg)](https://www.tampermonkey.net/)
 
@@ -277,7 +277,7 @@ const PRESETS = {
 也可以在脚本「设置 → 保存设置下方 → 赞赏支持」中查看：
 
 <div align="center">
-  <img src="./wechat-reward-qr.png" alt="微信赞赏码" width="180">
+  <img src="./assets/wechat-reward-qr.png" alt="微信赞赏码" width="180">
   <div>微信赞赏码</div>
 </div>
 
