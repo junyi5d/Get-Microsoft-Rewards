@@ -2,7 +2,7 @@
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
 // @version      1.2.13
-// @description  微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常任务，极简悬浮窗 + 可配置面板，一键全自动获取积分。
+// @description  微软 Rewards 助手 - 搭配篡改猴自动完成必应日常任务、搜索、阅读任务，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
 // @match        https://www.bing.com/*
