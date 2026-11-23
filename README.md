@@ -2,11 +2,11 @@
 
 <div align="center">
 
-**微软 Rewards 助手 - 自动完成每日活动、必应搜索与日常 / 阅读任务，配备极简 UI 悬浮窗，一键全自动获取积分。**
+**微软Rewards助手 - 搭配篡改猴自动完成必应日常任务、搜索、阅读任务，一键全自动获取积分。**
 
 > 原作者：[QingJ01/Get-Microsoft-Rewards](https://github.com/QingJ01/Get-Microsoft-Rewards)
 
-[![Version](https://img.shields.io/badge/version-1.2.12-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.2.13-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.3%2B-orange.svg)](https://www.tampermonkey.net/)
 
