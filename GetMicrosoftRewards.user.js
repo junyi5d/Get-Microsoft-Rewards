@@ -1609,6 +1609,81 @@
         return '奖励活动';
     }
 
+    // 显示标题兜底缓存：HTML / DAPI 都拿不到中文标题时，抓目标页 title 补上
+    // 按 offerId 缓存，当天首次加载后命中即返回，避免反复请求
+    const promoTitleCache = new Map();
+
+    function decodeHtmlEntities(s) {
+        return String(s || '')
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+            .trim();
+    }
+
+    // 从 HTML 里提取页面标题：og:title 优先（结构化、干净），其次 <title>
+    function extractPageTitle(html) {
+        const text = String(html || '');
+        let m = text.match(/<meta[^>]+property=["']og:title["'][^>]*?content=["']([^"']+)["']/i)
+            || text.match(/<meta[^>]+content=["']([^"']+)["'][^>]*?property=["']og:title["']/i);
+        if (m) return decodeHtmlEntities(m[1]);
+        m = text.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+        if (m) return decodeHtmlEntities(m[1]);
+        return '';
+    }
+
+    // 去掉 Bing / Rewards 通用站点后缀，只保留活动主题名
+    function cleanPageTitle(title) {
+        return String(title || '')
+            .replace(/\s*[-–—|·•]\s*(Microsoft\s*)?Bing(\s+Search)?.*$/i, '')
+            .replace(/\s*[-–—|·•]\s*必应.*$/i, '')
+            .replace(/\s*[-–—|·•]\s*Microsoft Rewards.*$/i, '')
+            .replace(/\s*[-–—|·•]\s*微软奖励.*$/i, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    // 对缺中文标题的 DailySet urlreward 任务，抓目标页标题作为 displayTitle
+    async function resolveMissingTitles(promos) {
+        if (!Array.isArray(promos) || !promos.length) return;
+        const tasks = [];
+        for (const p of promos) {
+            if (!p || !p.offerId || !isDailySetPromo(p) || isFuturePromo(p)) continue;
+            if (p.displayTitle || /[\u3400-\u9fff]/.test(p.title || '')) continue; // 已有中文标题
+            if (!p.destination || /^javascript:/i.test(p.destination)) continue;
+            if (promoTitleCache.has(p.offerId)) {
+                const cached = promoTitleCache.get(p.offerId);
+                if (cached) p.displayTitle = cached;
+                continue;
+            }
+            tasks.push(p);
+        }
+        if (!tasks.length) return;
+        const results = await Promise.all(tasks.map(async p => {
+            try {
+                const abs = new URL(p.destination, 'https://rewards.bing.com/');
+                const html = await request({
+                    url: abs.href,
+                    headers: {
+                        'User-Agent': CONFIG.ua.pc,
+                        'Referer': 'https://rewards.bing.com/dashboard',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                    },
+                    useCookies: true,
+                    retries: 0,
+                    timeout: 10000
+                });
+                const title = cleanPageTitle(extractPageTitle(html));
+                if (title && /[\u3400-\u9fff]/.test(title)) {
+                    promoTitleCache.set(p.offerId, title);
+                    return title;
+                }
+            } catch (e) { /* 抓取失败保持兜底，不阻断主流程 */ }
+            promoTitleCache.set(p.offerId, ''); // 记忆失败，避免当天反复请求
+            return '';
+        }));
+        tasks.forEach((p, i) => { if (results[i]) p.displayTitle = results[i]; });
+    }
+
     async function updateData(opts = {}) {
         if (state.updatingPromise) return state.updatingPromise;
         state.updatingPromise = (async () => {
@@ -1627,6 +1702,9 @@
                 const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, displayTitle: chineseTitles.get(p.offerId) } : p;
                 if (dapi && dapi.promos) dapi.promos = dapi.promos.map(localizeTitle);
                 dash.promos = dash.promos.map(localizeTitle);
+
+                // 兜底：DailySet 缺中文标题时抓目标页 title（如 Child2 未在页面渲染、DAPI 又未本地化）
+                await resolveMissingTitles(dapi && dapi.promos ? dapi.promos : dash.promos);
 
                 // 账户信息以 OAuth(DAPI) 为准；未授权 / DAPI 失败时才回退到页面(cookie)解析
                 let sourcePromos;
