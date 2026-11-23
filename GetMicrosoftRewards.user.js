@@ -2373,8 +2373,11 @@
     }
 
     function getClaimablePromos() {
+        // 排除元数据/噪音卡片（level_info / redeem_info / user_info / streak 计数等），
+        // 它们 progress 可能 >= max 但不是可领取的任务；否则会被误判成「待领取积分」并反复失败
         return state.allPromos.filter(p => p && p.max > 0 && (p.progress || 0) >= p.max
-            && !p.complete && !p.locked && !p.hidden && isPromoEligible(p));
+            && !p.complete && !p.locked && !p.hidden
+            && !isNoisePromo(p) && isPromoEligible(p));
     }
 
     // 一键全部执行末尾：扫描全部活动，领取后刷新并复查，避免漏掉未归类卡片
