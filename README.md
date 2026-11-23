@@ -92,12 +92,12 @@
 
 ### 安装步骤
 
-**安装脚本**
-   - 点击安装（实际链接）：
-     <https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js>
-   - 脚本直链：
-     <https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js>
-   - 或手动复制 `GetMicrosoftRewards.user.js` 内容到 Tampermonkey 新建脚本
+1. 一键安装/更新链接（Tampermonkey 会直接弹出安装/更新页）：
+[https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js](https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js)
+2. 或下载本仓库中的 `GetMicrosoftRewards.user.js` 文件
+3. 打开 Tampermonkey 扩展管理页面
+4. 点击"实用工具"选项卡
+5. 将文件URL粘贴到"从URL安装"输入框，点击"安装"
 
 ***
 
