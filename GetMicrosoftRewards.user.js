@@ -68,9 +68,9 @@
 
     // 打卡 / 任务间隔预设
     const PRESETS = {
-        fast: { label: '快速', taskMin: 1200, taskMax: 2500 },
-        recommended: { label: '推荐', taskMin: 2000, taskMax: 4000 },
-        safe: { label: '保守', taskMin: 3500, taskMax: 7000 }
+        fast: { label: '快速', taskMin: 2000, taskMax: 4000 },
+        recommended: { label: '推荐', taskMin: 5000, taskMax: 10000 },
+        safe: { label: '保守', taskMin: 8000, taskMax: 16000 }
     };
 
     const DEFAULT_SETTINGS = { position: 'left', preset: 'recommended' };
