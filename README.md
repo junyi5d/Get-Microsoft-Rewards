@@ -178,7 +178,7 @@
 const PRESETS = {
     fast:        { label: '快速', taskMin: 20000, taskMax: 60000 },
     recommended: { label: '推荐', taskMin: 60000, taskMax: 120000 },
-    safe:        { label: '保守', taskMin: 12000, taskMax: 36000 }
+    safe:        { label: '保守', taskMin: 120000, taskMax: 360000 }
 };
 ```
 
