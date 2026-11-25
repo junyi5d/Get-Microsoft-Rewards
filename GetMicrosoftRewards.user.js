@@ -255,6 +255,35 @@
         }
     }
 
+    // 判断是否为超时 / 网络异常（status 0 由 onerror / ontimeout 产生）
+    function isTimeoutError(e) {
+        if (!e) return false;
+        if (e.status === 0) return true;
+        return /超时|timeout|网络错误/i.test(e.message || '');
+    }
+
+    // 响应内容中是否带有封禁 / 受限提示
+    function looksBanned(text) {
+        const s = String(text || '');
+        if (!s) return false;
+        return /"isBanned"\s*:\s*true|"isSuspended"\s*:\s*true|"accountStatus"\s*:\s*"(?:banned|suspended|locked|disabled)"|account\s+(?:has\s+been\s+)?(?:suspended|banned|locked)|账号(?:已|被)?[^，。]{0,6}(?:封禁|暂停|限制)/i.test(s);
+    }
+
+    // 403 视为账号受限；401 属未授权，不在此列
+    function isBannedError(e) {
+        if (!e) return false;
+        if (e.status === 403) return true;
+        return looksBanned(`${e.message || ''} ${e.body || ''}`);
+    }
+
+    // 首次读取为空时归类失败原因：封禁 > 超时 > 其他（未登录等）
+    function classifyReadFailure(meta) {
+        const errors = (meta && meta.errors) || [];
+        if ((meta && meta.bannedHint) || errors.some(isBannedError)) return 'banned';
+        if (errors.some(isTimeoutError)) return 'timeout';
+        return '';
+    }
+
     // ========== 热搜词 ==========
     async function getHotQuery(used) {
         for (let attempt = 0; attempt < 3; attempt++) {
@@ -417,6 +446,9 @@
         #mr-status-time { margin-left: auto; font-weight: 600; color: #475467; font-variant-numeric: tabular-nums; }
         .mr-status-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; flex: none; }
         #mr-status.busy .mr-status-dot { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .16); animation: mr-pulse 1.4s infinite; }
+        #mr-status.error { background: linear-gradient(180deg, #fffbfa, #fef3f2); border-color: #fecdca; }
+        #mr-status.error #mr-status-text { color: #b42318; }
+        #mr-status.error .mr-status-dot { background: #f04438; }
         @keyframes mr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
         .mr-status-track { margin-top: 7px; height: 3px; }
 
@@ -857,11 +889,12 @@
     }
 
     // ========== 状态栏 / 倒计时 ==========
-    function setStatus(text) {
+    function setStatus(text, isError) {
         nodes.statusText.textContent = text;
         nodes.statusTime.textContent = '';
         nodes.statusBar.style.width = '0%';
         nodes.status.classList.toggle('busy', false);
+        nodes.status.classList.toggle('error', !!isError);
     }
 
     function setBusyStatus(text) {
@@ -869,6 +902,7 @@
         nodes.statusTime.textContent = '';
         nodes.statusBar.style.width = '0%';
         nodes.status.classList.toggle('busy', true);
+        nodes.status.classList.toggle('error', false);
     }
 
     function setCountdown(label, remainMs, totalMs) {
@@ -876,6 +910,7 @@
         nodes.statusTime.textContent = formatSecs(remainMs / 1000);
         nodes.statusBar.style.width = `${totalMs ? clamp((remainMs / totalMs) * 100, 0, 100) : 0}%`;
         nodes.status.classList.toggle('busy', true);
+        nodes.status.classList.toggle('error', false);
     }
 
     // 可被暂停打断的等待：倒计时只更新状态栏，不再刷日志
@@ -1254,8 +1289,10 @@
         return items;
     }
 
-    async function fetchDashboard() {
+    async function fetchDashboard(meta) {
         const out = { promos: [], user: null, levelName: '', activeLevel: 0 };
+        const noteError = e => { if (meta && e) meta.errors.push(e); };
+        const scanBanned = text => { if (meta && !meta.bannedHint && looksBanned(text)) meta.bannedHint = true; };
 
         // 1) Dashboard / Earn 页面（新版页面把任务数据放在 Flight 流里）
         for (const page of ['https://rewards.bing.com/dashboard', 'https://rewards.bing.com/earn']) {
@@ -1275,6 +1312,7 @@
                         if (promo) out.promos.push(promo);
                     }
                     const plain = decodePageText(html);
+                    scanBanned(plain);
                     const pointsMatch = plain.match(/"(?:availablePoints|balance)"\s*:\s*(\d+)/);
                     if (pointsMatch) state.points = Number(pointsMatch[1]);
 
@@ -1285,6 +1323,7 @@
                     }
                 }
             } catch (e) {
+                noteError(e);
                 console.warn(`[MR] ${page} 获取失败`, e);
             }
         }
@@ -1301,6 +1340,7 @@
                 },
                 useCookies: true
             });
+            scanBanned(res);
             const data = JSON.parse(res);
             const dashboard = data.dashboard || data;
             if (dashboard && (dashboard.userStatus || dashboard.morePromotions || dashboard.dailySetPromotions)) {
@@ -1321,13 +1361,16 @@
         } catch (e) {
             // 未登录 rewards.bing.com 时该接口返回 401；有 DAPI 时属正常，不打扰用户
             if (e && e.status === 401) console.debug('[MR] getuserinfo 401（页面态未登录，已跳过；DAPI 仍可用）');
-            else console.warn('[MR] getuserinfo 获取失败', e);
+            else {
+                noteError(e);
+                console.warn('[MR] getuserinfo 获取失败', e);
+            }
         }
 
         return out;
     }
 
-    async function fetchDapiOverview() {
+    async function fetchDapiOverview(meta) {
         const token = await getAccessToken({ silent: true });
         if (!token) return null;
         try {
@@ -1343,6 +1386,7 @@
                     'X-Rewards-Language': 'zh'
                 }
             }));
+            if (meta && !meta.bannedHint && looksBanned(res)) meta.bannedHint = true;
             const data = JSON.parse(res);
             const r = data.response || {};
             const lvInfo = (r.levelInfo && typeof r.levelInfo === 'object') ? r.levelInfo : {};
@@ -1356,6 +1400,7 @@
                 counters: r.counters || {}
             };
         } catch (e) {
+            if (meta && e) meta.errors.push(e);
             return null;
         }
     }
@@ -1690,7 +1735,8 @@
             const firstLoad = !state.loaded;
             if (firstLoad) setBusyStatus('正在读取账户信息…');
             try {
-                const [dash, dapi] = await Promise.all([fetchDashboard(), fetchDapiOverview()]);
+                const meta = { errors: [], bannedHint: false };
+                const [dash, dapi] = await Promise.all([fetchDashboard(meta), fetchDapiOverview(meta)]);
 
                 // DAPI 继续提供权威状态与积分；同 offerId 的 HTML 中文标题只用于显示和日志
                 const chineseTitles = new Map();
@@ -1801,14 +1847,32 @@
                 state.searchCount = Math.min(searchLimit(), Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP)));
                 state.searchDone = state.searchCur >= searchMax;
 
+                const noData = !dash.user && !sourcePromos.length && !dapi;
+                const failureKind = noData ? classifyReadFailure(meta) : '';
+
                 state.loaded = true;
                 render();
-                if (firstLoad) setStatus('就绪');
-                if (!opts.quiet) {
-                    if (!dash.user && !sourcePromos.length && !dapi) {
-                        log('未能读取任务数据，请确认已登录 rewards.bing.com 并完成微软授权');
-                    } else {
-                        log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 每日活动 ${state.checkinCur}/${state.checkinMax} · 搜索 ${state.searchCur}/${state.searchMax} · 任务 ${state.promosDone}/${state.promosTotal}${state.readingMax ? ` · 阅读 ${state.readingCur}/${state.readingMax}` : ''}`);
+
+                // 首次读取账户信息为空时，区分封禁 / 超时给出明确提示
+                if (failureKind === 'banned') {
+                    if (firstLoad || !opts.quiet) {
+                        setStatus('账号已封禁或受限', true);
+                        log('账号已封禁或受限，无法读取账户信息；请前往 Microsoft Rewards 官网确认账号状态');
+                    }
+                } else if (failureKind === 'timeout') {
+                    if (firstLoad || !opts.quiet) {
+                        setStatus('读取超时', true);
+                        log('读取账户信息超时（网络异常），请检查网络或代理后重试');
+                    }
+                } else {
+                    // 读取恢复正常后清除之前的错误状态
+                    if (firstLoad || nodes.status.classList.contains('error')) setStatus('就绪');
+                    if (!opts.quiet) {
+                        if (noData) {
+                            log('未能读取任务数据，请确认已登录 rewards.bing.com 并完成微软授权');
+                        } else {
+                            log(`数据已更新（${source}）：${state.levelName || 'Lv.' + state.level} · ${Number(state.points || 0).toLocaleString('zh-CN')} 积分 · 每日活动 ${state.checkinCur}/${state.checkinMax} · 搜索 ${state.searchCur}/${state.searchMax} · 任务 ${state.promosDone}/${state.promosTotal}${state.readingMax ? ` · 阅读 ${state.readingCur}/${state.readingMax}` : ''}`);
+                        }
                     }
                 }
                 return true;
