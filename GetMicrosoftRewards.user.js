@@ -66,11 +66,11 @@
         keywords: ['天气预报', '今日新闻', '体育赛事', '股票行情', '电影推荐', '科技资讯', '美食食谱', '旅游攻略']
     };
 
-    // 打卡 / 任务间隔预设
+    // 打卡 / 任务间隔预设 / 毫秒
     const PRESETS = {
-        fast: { label: '快速', taskMin: 2000, taskMax: 4000 },
-        recommended: { label: '推荐', taskMin: 5000, taskMax: 10000 },
-        safe: { label: '保守', taskMin: 8000, taskMax: 16000 }
+        fast: { label: '快速', taskMin: 20000, taskMax: 60000 },
+        recommended: { label: '推荐', taskMin: 60000, taskMax: 120000 },
+        safe: { label: '保守', taskMin: 120000, taskMax: 360000 }
     };
 
     const DEFAULT_SETTINGS = { position: 'left', preset: 'recommended' };
