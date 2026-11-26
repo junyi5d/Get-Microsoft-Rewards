@@ -6,7 +6,7 @@
 
 > 原作者：[QingJ01/Get-Microsoft-Rewards](https://github.com/QingJ01/Get-Microsoft-Rewards)
 
-[![Version](https://img.shields.io/badge/version-1.2.13-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.2.14-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.3%2B-orange.svg)](https://www.tampermonkey.net/)
 
