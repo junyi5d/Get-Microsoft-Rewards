@@ -89,7 +89,7 @@
 | App / 移动端 / Xbox / 邀请好友 | 相关卡片 | 跳过，不纳入自动执行 |
 | 升级里程碑 / 默认搜索引擎 | 「升级活动」板块 | 无法由网页脚本一次完成，跳过 |
 
-> 一键全部执行只会选择当前未完成、且可获得积分的栏目，并以随机顺序执行，最后领取可领取积分，模拟真人操作节奏。
+> 一键全部执行只会选择当前未完成、且可获得积分的栏目，最后领取可领取积分。
 > 问卷 / 测验类任务需要人工选择答案，脚本只能尝试自动上报；仅限 必应应用App 的任务无法代做。
 
 ***
@@ -217,7 +217,7 @@ const PRESETS = {
 
 ### Q: 提示「篡改猴没有访问此页面的权限」？
 
-**A**: 主要是在https://rewards.bing.com这个页面，也可以到https://cn.bing.com正常使用
+**A**: 主要是在<https://rewards.bing.com>这个页面，也可以到<https://cn.bing.com>正常使用
 
 ### Q: 每日活动失败？
 
@@ -236,29 +236,12 @@ const PRESETS = {
 
 ***
 
-## 🗒️ 更新日志
-
-### v1.2.14
-
-- 🛡️ 首次读取账户信息失败时区分原因并给出明确提示
-  - 账号被封禁 / 受限（HTTP 403 或响应含封禁提示）→ 状态栏与日志提示「账号已封禁或受限」
-  - 请求超时 / 网络异常 → 状态栏与日志提示「读取超时」，并建议检查网络或代理
-- 🎨 状态栏新增错误样式，读取恢复正常后自动清除错误状态
-
-***
-
 ## 📊 技术栈
 
 - **核心**: 原生 JavaScript (ES6+)
 - **网络请求**: `GM_xmlhttpRequest`
 - **存储**: `GM_setValue` / `GM_getValue`
 - **通知**: `GM_notification`
-
-***
-
-## 🤝 贡献
-
-欢迎提交 [Issue](https://github.com/junyi5d/Get-Microsoft-Rewards/issues) 和 [Pull Request](https://github.com/junyi5d/Get-Microsoft-Rewards/pulls)！
 
 ***
 
