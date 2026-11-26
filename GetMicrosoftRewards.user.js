@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.14
+// @version      1.2.15
 // @description  微软 Rewards 助手 - 搭配篡改猴自动完成必应日常任务、搜索、阅读任务，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -111,11 +111,21 @@
 
     // 脚本版本号：直接读取脚本自身元数据，升级 @version 后界面与日志自动同步
     const SCRIPT_VERSION = (() => {
-        if (typeof GM_info !== 'undefined' && GM_info) {
-            if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
-            const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
-            if (matched) return matched[1];
-        }
+        try {
+            if (typeof GM_info !== 'undefined' && GM_info) {
+                if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
+                const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
+                if (matched) return matched[1];
+            }
+            // 兜底：部分脚本管理器不暴露 GM_info.script.version，从页面内自身脚本文本解析，
+            // 确保「脚本就绪」日志与设置里的版本徽章始终跟随 @version 同步
+            if (typeof document !== 'undefined' && document.querySelectorAll) {
+                for (const s of document.querySelectorAll('script')) {
+                    const m = (s.textContent || '').match(/@version\s+([\d.]+)/);
+                    if (m) return m[1];
+                }
+            }
+        } catch (e) { }
         return '';
     })();
 
@@ -1010,8 +1020,6 @@
 
     function levelIcon(name, level) {
         const s = String(name || '');
-        if (/钻石|diamond/i.test(s)) return '💎';
-        if (/白金|platinum/i.test(s)) return '🏆';
         if (/金牌|gold/i.test(s)) return '🥇';
         if (/银牌|silver/i.test(s)) return '🥈';
         if (/铜牌|bronze/i.test(s)) return '🥉';
@@ -1423,7 +1431,6 @@
 
     // 等级名称 → 数字（仅用于图标兜底）
     function levelFromName(name) {
-        if (/钻石|diamond|白金|platinum/i.test(name)) return 4;
         if (/金牌|gold/i.test(name)) return 3;
         if (/银牌|silver/i.test(name)) return 2;
         if (/铜牌|bronze|copper/i.test(name)) return 1;
@@ -1435,11 +1442,12 @@
     function normalizeLevelName(raw) {
         const s = String(raw || '').trim();
         if (!s) return '';
+        // 本脚本不识别钻石 / 白金等级（Microsoft Rewards 实际为 普通 / 银牌 / 金牌），
+        // 避免从页面无关文本（如封禁页、等级阶梯、推广文案）中误读出不存在的等级
+        if (/钻石|白金|diamond|platinum/i.test(s)) return '';
         if (/gold|金牌/i.test(s)) return '金牌会员';
         if (/silver|银牌/i.test(s)) return '银牌会员';
         if (/bronze|copper|铜牌/i.test(s)) return '铜牌会员';
-        if (/platinum|白金/i.test(s)) return '白金会员';
-        if (/diamond|钻石/i.test(s)) return '钻石会员';
         if (/member|普通会员/i.test(s)) return '普通会员';
         if (/会员/.test(s)) return s;
         if (/^level\s*\d+$/i.test(s) || /^\d+$/.test(s)) return '';
@@ -1449,7 +1457,7 @@
     // 从徽章图片地址推断等级（如 gold.png / silver-member.svg / level3.png）
     function levelNameFromIcon(src) {
         const s = String(src || '');
-        const m = s.match(/(gold|silver|bronze|platinum|diamond|level[\s_-]*([0-9]))/i);
+        const m = s.match(/(gold|silver|bronze|level[\s_-]*([0-9]))/i);
         if (!m) return '';
         if (m[2]) {
             const n = Number(m[2]);
@@ -1467,10 +1475,10 @@
         const idx = s.indexOf('了解详细信息');
         if (idx > 0) {
             const before = s.slice(Math.max(0, idx - 400), idx);
-            const all = [...before.matchAll(/(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g)];
+            const all = [...before.matchAll(/(普通|银牌|金牌|铜牌)\s*会员/g)];
             if (all.length) return normalizeLevelName(all[all.length - 1][1] + '会员');
         }
-        const m = s.match(/(?:当前等级|会员等级|我的等级)[\s\S]{0,40}?((?:普通|银牌|金牌|铜牌|白金|钻石)\s*会员)/);
+        const m = s.match(/(?:当前等级|会员等级|我的等级)[\s\S]{0,40}?((?:普通|银牌|金牌|铜牌)\s*会员)/);
         return m ? normalizeLevelName(m[1]) : '';
     }
 
@@ -1491,14 +1499,14 @@
         }
 
         // 3) 页面徽章的 alt / aria-label / title
-        const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|白金|钻石|普通|gold|silver|bronze|platinum|diamond|member)[^"]{0,20}?)"/i);
+        const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|普通|gold|silver|bronze|member)[^"]{0,20}?)"/i);
         if (attr) {
             const name = normalizeLevelName(attr[1]);
             if (name) return name;
         }
 
         // 4) 徽章图片地址（gold.png / level2.svg 等）
-        const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|platinum|diamond|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
+        const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
         if (icon) {
             const name = levelNameFromIcon(icon[1]);
             if (name) return name;
@@ -1532,7 +1540,7 @@
 
         // 7) 页面中只出现一种会员名称时，直接采用（如「金牌会员」）
         const tiers = new Set();
-        const tierRe = /(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g;
+        const tierRe = /(普通|银牌|金牌|铜牌)\s*会员/g;
         let tm;
         while ((tm = tierRe.exec(s)) !== null) tiers.add(tm[1]);
         if (tiers.size === 1) return normalizeLevelName([...tiers][0] + '会员');
@@ -1819,24 +1827,31 @@
                         'read=' + state.readingCur + '/' + state.readingMax);
                 }
 
-                // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
+                // 没有任何权威账户数据（未登录 / 封禁 / 超时）时，不展示从页面文本误读到的等级
+                const noData = !dash.user && !sourcePromos.length && !dapi;
                 const user = dash.user || {};
-                const domLevelName = readLevelFromDom();
-                if (dapi && dapi.level > 0) {
-                    state.level = dapi.level;
-                } else {
-                    const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
-                    if (dash.activeLevel > 0) state.level = dash.activeLevel;
-                    else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
-                }
+                if (!noData) {
+                    // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
+                    const domLevelName = readLevelFromDom();
+                    if (dapi && dapi.level > 0) {
+                        state.level = dapi.level;
+                    } else {
+                        const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
+                        if (dash.activeLevel > 0) state.level = dash.activeLevel;
+                        else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+                    }
 
-                // 等级名称：当前页面 DOM > OAuth(DAPI) > 看板页面；抓不到时清空，界面回退为图标
-                const levelName = domLevelName || (dapi && dapi.levelName) || dash.levelName;
-                if (levelName) {
-                    state.levelName = levelName;
-                    const byName = levelFromName(levelName);
-                    if (byName) state.level = byName;
-                } else if (dapi || dash.user || dash.activeLevel > 0) {
+                    // 等级名称：当前页面 DOM > OAuth(DAPI) > 看板页面；抓不到时清空，界面回退为图标
+                    const levelName = domLevelName || (dapi && dapi.levelName) || dash.levelName;
+                    if (levelName) {
+                        state.levelName = levelName;
+                        const byName = levelFromName(levelName);
+                        if (byName) state.level = byName;
+                    } else if (dapi || dash.user || dash.activeLevel > 0) {
+                        state.levelName = '';
+                    }
+                } else {
+                    state.level = 1;
                     state.levelName = '';
                 }
 
@@ -1856,7 +1871,6 @@
                 state.searchCount = Math.min(searchLimit(), Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP)));
                 state.searchDone = state.searchCur >= searchMax;
 
-                const noData = !dash.user && !sourcePromos.length && !dapi;
                 const failureKind = noData ? classifyReadFailure(meta) : '';
 
                 state.loaded = true;
