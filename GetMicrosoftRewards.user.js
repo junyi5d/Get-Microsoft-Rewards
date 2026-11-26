@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.14
+// @version      1.2.15
 // @description  微软 Rewards 助手 - 搭配篡改猴自动完成必应日常任务、搜索、阅读任务，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -111,11 +111,21 @@
 
     // 脚本版本号：直接读取脚本自身元数据，升级 @version 后界面与日志自动同步
     const SCRIPT_VERSION = (() => {
-        if (typeof GM_info !== 'undefined' && GM_info) {
-            if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
-            const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
-            if (matched) return matched[1];
-        }
+        try {
+            if (typeof GM_info !== 'undefined' && GM_info) {
+                if (GM_info.script && GM_info.script.version) return String(GM_info.script.version);
+                const matched = String(GM_info.scriptMetaStr || '').match(/@version\s+([\d.]+)/);
+                if (matched) return matched[1];
+            }
+            // 兜底：部分脚本管理器不暴露 GM_info.script.version，从页面内自身脚本文本解析，
+            // 确保「脚本就绪」日志与设置里的版本徽章始终跟随 @version 同步
+            if (typeof document !== 'undefined' && document.querySelectorAll) {
+                for (const s of document.querySelectorAll('script')) {
+                    const m = (s.textContent || '').match(/@version\s+([\d.]+)/);
+                    if (m) return m[1];
+                }
+            }
+        } catch (e) { }
         return '';
     })();
 
@@ -1010,8 +1020,6 @@
 
     function levelIcon(name, level) {
         const s = String(name || '');
-        if (/钻石|diamond/i.test(s)) return '💎';
-        if (/白金|platinum/i.test(s)) return '🏆';
         if (/金牌|gold/i.test(s)) return '🥇';
         if (/银牌|silver/i.test(s)) return '🥈';
         if (/铜牌|bronze/i.test(s)) return '🥉';
@@ -1423,7 +1431,6 @@
 
     // 等级名称 → 数字（仅用于图标兜底）
     function levelFromName(name) {
-        if (/钻石|diamond|白金|platinum/i.test(name)) return 4;
         if (/金牌|gold/i.test(name)) return 3;
         if (/银牌|silver/i.test(name)) return 2;
         if (/铜牌|bronze|copper/i.test(name)) return 1;
@@ -1435,11 +1442,12 @@
     function normalizeLevelName(raw) {
         const s = String(raw || '').trim();
         if (!s) return '';
+        // 本脚本不识别钻石 / 白金等级（Microsoft Rewards 实际为 普通 / 银牌 / 金牌），
+        // 避免从页面无关文本（如封禁页、等级阶梯、推广文案）中误读出不存在的等级
+        if (/钻石|白金|diamond|platinum/i.test(s)) return '';
         if (/gold|金牌/i.test(s)) return '金牌会员';
         if (/silver|银牌/i.test(s)) return '银牌会员';
         if (/bronze|copper|铜牌/i.test(s)) return '铜牌会员';
-        if (/platinum|白金/i.test(s)) return '白金会员';
-        if (/diamond|钻石/i.test(s)) return '钻石会员';
         if (/member|普通会员/i.test(s)) return '普通会员';
         if (/会员/.test(s)) return s;
         if (/^level\s*\d+$/i.test(s) || /^\d+$/.test(s)) return '';
@@ -1449,7 +1457,7 @@
     // 从徽章图片地址推断等级（如 gold.png / silver-member.svg / level3.png）
     function levelNameFromIcon(src) {
         const s = String(src || '');
-        const m = s.match(/(gold|silver|bronze|platinum|diamond|level[\s_-]*([0-9]))/i);
+        const m = s.match(/(gold|silver|bronze|level[\s_-]*([0-9]))/i);
         if (!m) return '';
         if (m[2]) {
             const n = Number(m[2]);
@@ -1467,10 +1475,10 @@
         const idx = s.indexOf('了解详细信息');
         if (idx > 0) {
             const before = s.slice(Math.max(0, idx - 400), idx);
-            const all = [...before.matchAll(/(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g)];
+            const all = [...before.matchAll(/(普通|银牌|金牌|铜牌)\s*会员/g)];
             if (all.length) return normalizeLevelName(all[all.length - 1][1] + '会员');
         }
-        const m = s.match(/(?:当前等级|会员等级|我的等级)[\s\S]{0,40}?((?:普通|银牌|金牌|铜牌|白金|钻石)\s*会员)/);
+        const m = s.match(/(?:当前等级|会员等级|我的等级)[\s\S]{0,40}?((?:普通|银牌|金牌|铜牌)\s*会员)/);
         return m ? normalizeLevelName(m[1]) : '';
     }
 
