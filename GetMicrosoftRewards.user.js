@@ -1499,14 +1499,14 @@
         }
 
         // 3) 页面徽章的 alt / aria-label / title
-        const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|普通|gold|silver|bronze|member)[^"]{0,20}?)"/i);
+        const attr = s.match(/(?:alt|aria-label|title)\s*=\s*"([^"]{0,40}?(?:金牌|银牌|铜牌|白金|钻石|普通|gold|silver|bronze|platinum|diamond|member)[^"]{0,20}?)"/i);
         if (attr) {
             const name = normalizeLevelName(attr[1]);
             if (name) return name;
         }
 
         // 4) 徽章图片地址（gold.png / level2.svg 等）
-        const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
+        const icon = s.match(/["'(]([^"'()\s]*(?:gold|silver|bronze|platinum|diamond|level[\s_-]*\d)[^"'()\s]*\.(?:png|svg|webp|jpg|jpeg))["')]/i);
         if (icon) {
             const name = levelNameFromIcon(icon[1]);
             if (name) return name;
@@ -1540,7 +1540,7 @@
 
         // 7) 页面中只出现一种会员名称时，直接采用（如「金牌会员」）
         const tiers = new Set();
-        const tierRe = /(普通|银牌|金牌|铜牌)\s*会员/g;
+        const tierRe = /(普通|银牌|金牌|铜牌|白金|钻石)\s*会员/g;
         let tm;
         while ((tm = tierRe.exec(s)) !== null) tiers.add(tm[1]);
         if (tiers.size === 1) return normalizeLevelName([...tiers][0] + '会员');
@@ -1747,22 +1747,13 @@
                 const [dash, dapi] = await Promise.all([fetchDashboard(meta), fetchDapiOverview(meta)]);
 
                 // DAPI 继续提供权威状态与积分；同 offerId 的 HTML 中文标题只用于显示和日志
-                // 同时用页面卡片补齐 DAPI 缺失的 hash / destination：领取走 reportActivity，必须有卡片 hash
-                const htmlByOffer = new Map();
+                const chineseTitles = new Map();
                 for (const p of dash.promos) {
-                    if (!p || !p.offerId) continue;
-                    const prev = htmlByOffer.get(p.offerId);
-                    htmlByOffer.set(p.offerId, prev ? mergePromo(prev, p) : p);
+                    if (p && p.offerId && /[\u3400-\u9fff]/.test(p.title || '') && !chineseTitles.has(p.offerId)) {
+                        chineseTitles.set(p.offerId, p.title);
+                    }
                 }
-                const localizeTitle = p => {
-                    const html = htmlByOffer.get(p.offerId);
-                    if (!html) return p;
-                    const out = { ...p };
-                    if (/[\u3400-\u9fff]/.test(html.title || '')) out.displayTitle = html.title;
-                    if (!out.hash && html.hash) out.hash = html.hash;
-                    if (!out.destination && html.destination) out.destination = html.destination;
-                    return out;
-                };
+                const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, displayTitle: chineseTitles.get(p.offerId) } : p;
                 if (dapi && dapi.promos) dapi.promos = dapi.promos.map(localizeTitle);
                 dash.promos = dash.promos.map(localizeTitle);
 
@@ -1827,31 +1818,24 @@
                         'read=' + state.readingCur + '/' + state.readingMax);
                 }
 
-                // 没有任何权威账户数据（未登录 / 封禁 / 超时）时，不展示从页面文本误读到的等级
-                const noData = !dash.user && !sourcePromos.length && !dapi;
+                // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
                 const user = dash.user || {};
-                if (!noData) {
-                    // 等级：OAuth(DAPI) 优先，页面 / DOM 兜底
-                    const domLevelName = readLevelFromDom();
-                    if (dapi && dapi.level > 0) {
-                        state.level = dapi.level;
-                    } else {
-                        const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
-                        if (dash.activeLevel > 0) state.level = dash.activeLevel;
-                        else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
-                    }
-
-                    // 等级名称：当前页面 DOM > OAuth(DAPI) > 看板页面；抓不到时清空，界面回退为图标
-                    const levelName = domLevelName || (dapi && dapi.levelName) || dash.levelName;
-                    if (levelName) {
-                        state.levelName = levelName;
-                        const byName = levelFromName(levelName);
-                        if (byName) state.level = byName;
-                    } else if (dapi || dash.user || dash.activeLevel > 0) {
-                        state.levelName = '';
-                    }
+                const domLevelName = readLevelFromDom();
+                if (dapi && dapi.level > 0) {
+                    state.level = dapi.level;
                 } else {
-                    state.level = 1;
+                    const rawLevel = (user.levelInfo && user.levelInfo.activeLevel) || user.level;
+                    if (dash.activeLevel > 0) state.level = dash.activeLevel;
+                    else if (rawLevel) state.level = parseInt(String(rawLevel).replace(/\D/g, ''), 10) || state.level;
+                }
+
+                // 等级名称：当前页面 DOM > OAuth(DAPI) > 看板页面；抓不到时清空，界面回退为图标
+                const levelName = domLevelName || (dapi && dapi.levelName) || dash.levelName;
+                if (levelName) {
+                    state.levelName = levelName;
+                    const byName = levelFromName(levelName);
+                    if (byName) state.level = byName;
+                } else if (dapi || dash.user || dash.activeLevel > 0) {
                     state.levelName = '';
                 }
 
@@ -1871,6 +1855,7 @@
                 state.searchCount = Math.min(searchLimit(), Math.max(state.searchCount, Math.round(state.searchCur / SEARCH_STEP)));
                 state.searchDone = state.searchCur >= searchMax;
 
+                const noData = !dash.user && !sourcePromos.length && !dapi;
                 const failureKind = noData ? classifyReadFailure(meta) : '';
 
                 state.loaded = true;
@@ -2196,15 +2181,9 @@
     }
 
     async function serverActionActivity(promo) {
-        if (!promo.hash) {
-            console.debug('[MR] 卡片缺少 hash，无法通过 Server Action 领取：' + promo.offerId);
-            return false;
-        }
+        if (!promo.hash) return false;
         const actions = await resolveServerActions();
-        if (!actions.reportActivity) {
-            console.debug('[MR] 未解析到 reportActivity Server Action，请刷新 earn 页面后重试');
-            return false;
-        }
+        if (!actions.reportActivity) return false;
         const tree = ['', { children: ['(nav)', { children: ['earn', { children: ['PAGE', {}, null, null, 4096] }, null, null, 4096] }, null, null, 4096] }, null, null, 4096 + 16];
         const headers = {
             'Accept': 'text/x-component',
@@ -2257,16 +2236,12 @@
                 await dapiActivity(promo);
                 accepted = true;
             }
-        } catch (e) {
-            console.debug(`[MR] DAPI 上报未通过 ${promo.offerId}`, e && (e.status || e.message));
-        }
+        } catch (e) { /* 继续尝试其它通道 */ }
 
         // 通道 2：Next.js Server Action（新版活动卡主通道）
         try {
             if (await serverActionActivity(promo)) accepted = true;
-        } catch (e) {
-            console.debug(`[MR] Server Action 未通过 ${promo.offerId}`, e && (e.status || e.message));
-        }
+        } catch (e) { /* 继续尝试旧接口 */ }
 
         // 通道 3：旧版 reportactivity（仅在有 verification token 时尝试）
         if (token) {

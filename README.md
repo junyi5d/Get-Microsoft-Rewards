@@ -6,7 +6,7 @@
 
 > 原作者：[QingJ01/Get-Microsoft-Rewards](https://github.com/QingJ01/Get-Microsoft-Rewards)
 
-[![Version](https://img.shields.io/badge/version-1.2.13-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
+[![Version](https://img.shields.io/badge/version-1.2.14-blue.svg)](https://github.com/junyi5d/Get-Microsoft-Rewards)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Tampermonkey](https://img.shields.io/badge/Tampermonkey-5.3%2B-orange.svg)](https://www.tampermonkey.net/)
 
@@ -19,11 +19,17 @@
 ## ⚠️ 注意事项
 
 - 本脚本仅供学习交流使用，请勿用于商业用途
-- 建议分不同时间段使用不同功能，不一次性完成所有任务
+- <strong>如因使用本工具，造成账号封禁、积分清零等问题，产生的任何后果由使用者自行承担</strong>
 - 请遵守 Microsoft Rewards 服务条款，合理使用
-- 不频繁更换IP地址，比如开着梯子使用
-- 使用本脚本产生的任何后果由使用者自行承担
-- <strong>如因使用本工具，造成账号封禁、积分清零等问题，由使用者自身负责</strong>
+
+### 封禁账号行为，可能包括但不限于
+- 每个家庭维护多个用户帐户
+- 每人开设多个用户帐户
+- 居住在 受支持的地区 之外
+- 提供的帐户信息不准确，包括真实姓名、完整且准确的邮寄地址、有效的电话号码和电子邮件地址
+- 使用旨在混淆真实 IP 地址或位置的服务。不频繁更换IP地址，比如开着梯子使用
+- 使用机器人、作弊代码、宏或其他自动化方式参与微软积分商城
+- 建议分不同时间段使用不同功能，不一次性完成所有任务
 
 ## 📸 界面预览
 
@@ -83,7 +89,7 @@
 | App / 移动端 / Xbox / 邀请好友 | 相关卡片 | 跳过，不纳入自动执行 |
 | 升级里程碑 / 默认搜索引擎 | 「升级活动」板块 | 无法由网页脚本一次完成，跳过 |
 
-> 一键全部执行只会选择当前未完成、且可获得积分的栏目，并以随机顺序执行，最后领取可领取积分，模拟真人操作节奏。
+> 一键全部执行只会选择当前未完成、且可获得积分的栏目，最后领取可领取积分。
 > 问卷 / 测验类任务需要人工选择答案，脚本只能尝试自动上报；仅限 必应应用App 的任务无法代做。
 
 ***
@@ -211,7 +217,7 @@ const PRESETS = {
 
 ### Q: 提示「篡改猴没有访问此页面的权限」？
 
-**A**: 主要是在https://rewards.bing.com这个页面，也可以到https://cn.bing.com正常使用
+**A**: 主要是在<https://rewards.bing.com>这个页面，也可以到<https://cn.bing.com>正常使用
 
 ### Q: 每日活动失败？
 
@@ -230,35 +236,12 @@ const PRESETS = {
 
 ***
 
-## 🗒️ 更新日志
-
-### v1.2.15
-
-- 🐛 修复被封禁 / 无数据账号误显示「💎 钻石会员」的问题：移除脚本中不存在的钻石 / 白金等级识别（Microsoft Rewards 实际等级为 普通 / 银牌 / 金牌）
-- 🛡️ 未读取到权威账户数据（未登录 / 封禁 / 超时）时，不再展示从页面文本里误读到的等级，等级区域回退为中性图标
-- 🔧 修复「脚本就绪」日志与设置中的版本号不同步：版本号解析增加从脚本自身文本读取的兜底，确保始终跟随 @version
-
-### v1.2.14
-
-- 🛡️ 首次读取账户信息失败时区分原因并给出明确提示
-  - 账号被封禁 / 受限（HTTP 403 或响应含封禁提示）→ 状态栏与日志提示「账号已封禁或受限」
-  - 请求超时 / 网络异常 → 状态栏与日志提示「读取超时」，并建议检查网络或代理
-- 🎨 状态栏新增错误样式，读取恢复正常后自动清除错误状态
-
-***
-
 ## 📊 技术栈
 
 - **核心**: 原生 JavaScript (ES6+)
 - **网络请求**: `GM_xmlhttpRequest`
 - **存储**: `GM_setValue` / `GM_getValue`
 - **通知**: `GM_notification`
-
-***
-
-## 🤝 贡献
-
-欢迎提交 [Issue](https://github.com/junyi5d/Get-Microsoft-Rewards/issues) 和 [Pull Request](https://github.com/junyi5d/Get-Microsoft-Rewards/pulls)！
 
 ***
 
