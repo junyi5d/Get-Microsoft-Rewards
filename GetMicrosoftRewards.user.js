@@ -1739,13 +1739,22 @@
                 const [dash, dapi] = await Promise.all([fetchDashboard(meta), fetchDapiOverview(meta)]);
 
                 // DAPI 继续提供权威状态与积分；同 offerId 的 HTML 中文标题只用于显示和日志
-                const chineseTitles = new Map();
+                // 同时用页面卡片补齐 DAPI 缺失的 hash / destination：领取走 reportActivity，必须有卡片 hash
+                const htmlByOffer = new Map();
                 for (const p of dash.promos) {
-                    if (p && p.offerId && /[\u3400-\u9fff]/.test(p.title || '') && !chineseTitles.has(p.offerId)) {
-                        chineseTitles.set(p.offerId, p.title);
-                    }
+                    if (!p || !p.offerId) continue;
+                    const prev = htmlByOffer.get(p.offerId);
+                    htmlByOffer.set(p.offerId, prev ? mergePromo(prev, p) : p);
                 }
-                const localizeTitle = p => chineseTitles.has(p.offerId) ? { ...p, displayTitle: chineseTitles.get(p.offerId) } : p;
+                const localizeTitle = p => {
+                    const html = htmlByOffer.get(p.offerId);
+                    if (!html) return p;
+                    const out = { ...p };
+                    if (/[\u3400-\u9fff]/.test(html.title || '')) out.displayTitle = html.title;
+                    if (!out.hash && html.hash) out.hash = html.hash;
+                    if (!out.destination && html.destination) out.destination = html.destination;
+                    return out;
+                };
                 if (dapi && dapi.promos) dapi.promos = dapi.promos.map(localizeTitle);
                 dash.promos = dash.promos.map(localizeTitle);
 
@@ -2173,9 +2182,15 @@
     }
 
     async function serverActionActivity(promo) {
-        if (!promo.hash) return false;
+        if (!promo.hash) {
+            console.debug('[MR] 卡片缺少 hash，无法通过 Server Action 领取：' + promo.offerId);
+            return false;
+        }
         const actions = await resolveServerActions();
-        if (!actions.reportActivity) return false;
+        if (!actions.reportActivity) {
+            console.debug('[MR] 未解析到 reportActivity Server Action，请刷新 earn 页面后重试');
+            return false;
+        }
         const tree = ['', { children: ['(nav)', { children: ['earn', { children: ['PAGE', {}, null, null, 4096] }, null, null, 4096] }, null, null, 4096] }, null, null, 4096 + 16];
         const headers = {
             'Accept': 'text/x-component',
@@ -2228,12 +2243,16 @@
                 await dapiActivity(promo);
                 accepted = true;
             }
-        } catch (e) { /* 继续尝试其它通道 */ }
+        } catch (e) {
+            console.debug(`[MR] DAPI 上报未通过 ${promo.offerId}`, e && (e.status || e.message));
+        }
 
         // 通道 2：Next.js Server Action（新版活动卡主通道）
         try {
             if (await serverActionActivity(promo)) accepted = true;
-        } catch (e) { /* 继续尝试旧接口 */ }
+        } catch (e) {
+            console.debug(`[MR] Server Action 未通过 ${promo.offerId}`, e && (e.status || e.message));
+        }
 
         // 通道 3：旧版 reportactivity（仅在有 verification token 时尝试）
         if (token) {
