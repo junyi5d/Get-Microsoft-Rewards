@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Get Microsoft Rewards
 // @namespace    http://tampermonkey.net/
-// @version      1.2.15
+// @version      1.2.16
 // @description  微软 Rewards 助手 - 搭配篡改猴自动完成必应日常任务、搜索、阅读任务，一键全自动获取积分。
 // @author       QingJ, junyi5d
 // @icon         https://rewards.bing.com/rewardscdn/images/rewards.png
@@ -157,6 +157,7 @@
     // ========== 状态 ==========
     const state = {
         loaded: false,
+        accountBanned: false,
         level: 1,
         levelName: '',
         points: 0,
@@ -276,7 +277,7 @@
     function looksBanned(text) {
         const s = String(text || '');
         if (!s) return false;
-        return /"isBanned"\s*:\s*true|"isSuspended"\s*:\s*true|"accountStatus"\s*:\s*"(?:banned|suspended|locked|disabled)"|account\s+(?:has\s+been\s+)?(?:suspended|banned|locked)|账号(?:已|被)?[^，。]{0,6}(?:封禁|暂停|限制)/i.test(s);
+        return /"isBanned"\s*:\s*true|"isSuspended"\s*:\s*true|"accountStatus"\s*:\s*"(?:banned|suspended|locked|disabled)"|account\s+(?:has\s+been\s+|is\s+)?(?:suspended|banned|locked)|(?:账号|帐户|账户)(?:已|被)?[^，。\s]{0,6}(?:封禁|暂停|限制|停用|禁用)|(?:积分商城|奖励计划)[^，。\s]{0,12}(?:暂停|封禁)/i.test(s);
     }
 
     // 403 视为账号受限；401 属未授权，不在此列
@@ -410,6 +411,7 @@
             border: 1px solid #cfe5fb;
             padding: 2px 8px; border-radius: 999px;
         }
+        #mr-level.banned { color: #b42318; background: #fef3f2; border-color: #fecdca; }
         #mr-badges { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; }
 
         .mr-metric { padding: 9px 14px 0; }
@@ -1034,9 +1036,17 @@
         nodes.widget.classList.toggle('mr-loading', loading);
 
         const name = state.levelName;
-        const icon = levelIcon(name, state.level);
-        nodes.level.textContent = name ? `${icon} ${name}` : icon;
-        nodes.level.title = name || '会员等级';
+        if (state.accountBanned) {
+            // 账号被暂停时页面抓不到积分与会员信息，等级位置直接给出封禁提示
+            nodes.level.textContent = '账号被封禁';
+            nodes.level.title = '账号已被暂停，无法读取积分与会员信息';
+            nodes.level.classList.add('banned');
+        } else {
+            const icon = levelIcon(name, state.level);
+            nodes.level.textContent = name ? `${icon} ${name}` : icon;
+            nodes.level.title = name || '会员等级';
+            nodes.level.classList.remove('banned');
+        }
         nodes.points.textContent = Number(state.points || 0).toLocaleString('zh-CN');
         const hasRead = loading || state.readingMax > 0;
         nodes.checkinWrap.classList.toggle('mr-hidden', !loading && state.checkinMax === 0);
@@ -1857,12 +1867,14 @@
 
                 const noData = !dash.user && !sourcePromos.length && !dapi;
                 const failureKind = noData ? classifyReadFailure(meta) : '';
+                // 页面返回「帐户已暂停」或接口 403 时，等级位置显示封禁提示
+                state.accountBanned = !!(meta.bannedHint || failureKind === 'banned');
 
                 state.loaded = true;
                 render();
 
                 // 首次读取账户信息为空时，区分封禁 / 超时给出明确提示
-                if (failureKind === 'banned') {
+                if (state.accountBanned) {
                     if (firstLoad || !opts.quiet) {
                         setStatus('账号已封禁或受限', true);
                         log('账号已封禁或受限，无法读取账户信息；请前往 Microsoft Rewards 官网确认账号状态');
