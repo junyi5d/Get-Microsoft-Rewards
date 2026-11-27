@@ -29,8 +29,8 @@
 // @connect      raw.githubusercontent.com
 // @homepageURL  https://github.com/junyi5d/Get-Microsoft-Rewards
 // @supportURL   https://github.com/junyi5d/Get-Microsoft-Rewards/issues
-// @updateURL    https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js
-// @downloadURL  https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js
+// @updateURL    https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/Get-Microsoft-Rewards.user.js
+// @downloadURL  https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/Get-Microsoft-Rewards.user.js
 // @license      MIT
 // @run-at       document-end
 // ==/UserScript==
@@ -2629,7 +2629,7 @@
 
     // ---- 关于：版本号（链接到项目主页）+ 检查更新 ----
     const REPO_URL = 'https://github.com/junyi5d/Get-Microsoft-Rewards';
-    const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/GetMicrosoftRewards.user.js';
+    const RAW_URL = 'https://raw.githubusercontent.com/junyi5d/Get-Microsoft-Rewards/main/Get-Microsoft-Rewards.user.js';
     // 版本号直接取脚本自身元数据，升级 @version 后界面自动同步，无需改代码
     const versionEl = settingsMask.querySelector('#mr-set-version');
     const updateStatusEl = settingsMask.querySelector('#mr-update-status');

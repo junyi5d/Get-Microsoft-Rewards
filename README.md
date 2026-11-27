@@ -108,8 +108,8 @@
 ### 安装步骤
 
 1. 一键安装/更新链接（Tampermonkey 会直接弹出安装/更新页）：
-[https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js](https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/GetMicrosoftRewards.user.js)
-2. 或下载本仓库中的 `GetMicrosoftRewards.user.js` 文件
+[https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/Get-Microsoft-Rewards.user.js](https://www.tampermonkey.net/script_installation.php#url=https://github.com/junyi5d/Get-Microsoft-Rewards/raw/refs/heads/main/Get-Microsoft-Rewards.user.js)
+2. 或下载本仓库中的 `Get-Microsoft-Rewards.user.js` 文件
 3. 打开 Tampermonkey 扩展管理页面
 4. 点击"实用工具"选项卡
 5. 将文件URL粘贴到"从URL安装"输入框，点击"安装"
@@ -233,28 +233,6 @@ const PRESETS = {
 
 - 找到 "Get Microsoft Rewards" 脚本
 - 点击删除即可
-
-***
-
-## 🗒️ 更新日志
-
-> 版本号以脚本 `@version` 为准：每次升级版本时，请同步更新页面顶部的版本徽章和这里的条目。
-
-### v1.2.16
-
-- 🚫 识别「微软积分商城帐户已暂停」页面：积分为 0、抓不到会员信息时，会员等级位置显示「账号被封禁」
-- 🛡️ 增强封禁文案识别（帐户 / 账户已暂停、account has been suspended 等），状态栏同步红色提示
-
-### v1.2.15
-
-- 🐛 修复被封禁 / 无数据账号误显示「💎 钻石会员」的问题
-- 🛡️ 未读取到权威账户数据时，不再展示从页面文本误读到的等级
-- 🔧 修复「脚本就绪」日志与设置中的版本号不同步
-
-### v1.2.14
-
-- 🛡️ 首次读取账户信息失败时区分封禁 / 超时，并给出明确提示
-- 🎨 状态栏新增错误样式，读取恢复正常后自动清除
 
 ***
 
